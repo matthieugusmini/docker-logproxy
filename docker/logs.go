@@ -113,7 +113,7 @@ func (lc *LogCollector) watchContainers(ctx context.Context) error {
 				go func() {
 					defer lc.wg.Done()
 
-					if err := lc.streamContainerLogs(ctx, ev.Actor.ID); err != nil {
+					if err := lc.streamContainerLogs(ctx, containerName); err != nil {
 						log.Printf("Stopped streaming logs for container %s: %v", ev.Actor.ID, err)
 					}
 				}()

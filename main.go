@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/matthieugusmini/docker-logproxy/docker"
+	customhttp "github.com/matthieugusmini/docker-logproxy/http"
 	"github.com/matthieugusmini/docker-logproxy/storage"
 )
 
@@ -40,21 +43,29 @@ func run(ctx context.Context, args []string) error {
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	storage := &storage.Filesystem{}
+
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return fmt.Errorf("new Docker Engine API client: %w", err)
 	}
 
-	lc := docker.NewLogCollector(
-		cli,
-		&storage.Filesystem{},
-		docker.LogCollectorOptions{
-			Containers: containers,
-		},
-	)
+	lc := docker.NewLogCollector(cli, storage, docker.LogCollectorOptions{
+		Containers: containers,
+	})
 
-	if err := lc.Run(ctx); err != nil {
-		return fmt.Errorf("discover and watch Docker containers: %w", err)
+	go func() {
+		if err := lc.Run(ctx); err != nil {
+			// return fmt.Errorf("discover and watch Docker containers: %w", err)
+			log.Fatal(err)
+		}
+	}()
+
+	srv := customhttp.NewServer(storage)
+
+	log.Println("Listening on port :8080")
+	if err := http.ListenAndServe(":8080", srv); err != nil {
+		return fmt.Errorf("listen and server: %w", err)
 	}
 
 	return nil
