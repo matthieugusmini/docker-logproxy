@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/moby/moby/client"
@@ -22,6 +24,19 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
+	var containers stringSliceFlag
+
+	fs := flag.NewFlagSet("docker-logproxy", flag.ExitOnError)
+	fs.Var(
+		&containers,
+		"containers",
+		"Comma-separated list of container names to watch (default: watch all containers)",
+	)
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse flags: %w", err)
+	}
+
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -33,12 +48,25 @@ func run(ctx context.Context, args []string) error {
 	lc := docker.NewLogCollector(
 		cli,
 		&storage.Filesystem{},
-		docker.LogCollectorOptions{},
+		docker.LogCollectorOptions{
+			Containers: containers,
+		},
 	)
 
 	if err := lc.Run(ctx); err != nil {
 		return fmt.Errorf("discover and watch Docker containers: %w", err)
 	}
 
+	return nil
+}
+
+type stringSliceFlag []string
+
+func (c *stringSliceFlag) String() string {
+	return fmt.Sprintf("%v", *c)
+}
+
+func (c *stringSliceFlag) Set(value string) error {
+	*c = strings.Split(value, ",")
 	return nil
 }

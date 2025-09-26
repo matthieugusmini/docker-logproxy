@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
@@ -19,7 +21,7 @@ type Storage interface {
 }
 
 type LogCollectorOptions struct {
-	containers []string
+	Containers []string
 }
 
 type LogCollector struct {
@@ -67,11 +69,16 @@ func (lc *LogCollector) discoverRunningContainers(ctx context.Context) error {
 	}
 
 	for _, ctr := range containers {
+		containerName := strings.TrimPrefix(ctr.Names[0], "/")
+		if !lc.shouldWatchContainer(containerName) {
+			continue
+		}
+
 		lc.wg.Add(1)
 		go func() {
 			defer lc.wg.Done()
 
-			if err := lc.streamContainerLogs(ctx, ctr.ID); err != nil {
+			if err := lc.streamContainerLogs(ctx, containerName); err != nil {
 				log.Printf("Stopped streaming logs for container %s: %v", ctr.ID, err)
 			}
 		}()
@@ -93,7 +100,12 @@ func (lc *LogCollector) watchContainers(ctx context.Context) error {
 	for {
 		select {
 		case ev := <-eventsCh:
-			log.Printf("New container %s [%s]", ev.Actor.ID, ev.Action)
+			containerName := ev.Actor.Attributes["name"]
+			log.Printf("New container %s [%s]", containerName, ev.Action)
+
+			if !lc.shouldWatchContainer(containerName) {
+				continue
+			}
 
 			switch ev.Action {
 			case events.ActionStart:
@@ -113,27 +125,26 @@ func (lc *LogCollector) watchContainers(ctx context.Context) error {
 	}
 }
 
-func (lc *LogCollector) streamContainerLogs(ctx context.Context, containerID string) error {
-	logsReader, err := lc.client.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{
+func (lc *LogCollector) streamContainerLogs(ctx context.Context, containerName string) error {
+	logsReader, err := lc.client.ContainerLogs(ctx, containerName, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
 		Timestamps: true,
-		Tail:       "0",
 	})
 	if err != nil {
 		return fmt.Errorf("container logs: %w", err)
 	}
 	defer logsReader.Close()
 
-	errPath := fmt.Sprintf("%s.stderr.log", containerID)
+	errPath := fmt.Sprintf("%s.stderr.log", containerName)
 	stderrFile, err := os.Create(errPath)
 	if err != nil {
 		return fmt.Errorf("create log file: %w", err)
 	}
 	defer stderrFile.Close()
 
-	outPath := fmt.Sprintf("%s.stdout.log", containerID)
+	outPath := fmt.Sprintf("%s.stdout.log", containerName)
 	stdoutFile, err := os.Create(outPath)
 	if err != nil {
 		return fmt.Errorf("create log file: %w", err)
@@ -146,4 +157,13 @@ func (lc *LogCollector) streamContainerLogs(ctx context.Context, containerID str
 	}
 
 	return nil
+}
+
+func (lc *LogCollector) shouldWatchContainer(containerName string) bool {
+	// Watch all containers if no specific containers specified
+	if len(lc.options.Containers) == 0 {
+		return true
+	}
+
+	return slices.Contains(lc.options.Containers, containerName)
 }
