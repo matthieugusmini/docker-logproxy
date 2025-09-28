@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -14,7 +13,8 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/matthieugusmini/docker-logproxy/docker"
-	customhttp "github.com/matthieugusmini/docker-logproxy/http"
+	"github.com/matthieugusmini/docker-logproxy/dockerlogproxy"
+	"github.com/matthieugusmini/docker-logproxy/http"
 	"github.com/matthieugusmini/docker-logproxy/storage"
 )
 
@@ -50,7 +50,9 @@ func run(ctx context.Context, args []string) error {
 		return fmt.Errorf("new Docker Engine API client: %w", err)
 	}
 
-	lc := docker.NewLogCollector(cli, storage, docker.LogCollectorOptions{
+	dockerClient := docker.NewClient(cli)
+
+	lc := dockerlogproxy.NewLogCollector(dockerClient, storage, dockerlogproxy.LogCollectorOptions{
 		Containers: containers,
 	})
 
@@ -61,10 +63,12 @@ func run(ctx context.Context, args []string) error {
 		}
 	}()
 
-	srv := customhttp.NewServer(storage)
+	logSvc := dockerlogproxy.NewContainerLogsService(dockerClient, storage)
+
+	srv := http.NewServer(logSvc)
 
 	log.Println("Listening on port :8080")
-	if err := http.ListenAndServe(":8080", srv); err != nil {
+	if err := srv.ListenAndServe(); err != nil {
 		return fmt.Errorf("listen and server: %w", err)
 	}
 
