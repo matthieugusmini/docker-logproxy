@@ -30,26 +30,29 @@ type LogsQuery struct {
 
 // LogsStorage provides access to persisted container logs from a storage backend.
 // It abstracts the underlying storage mechanism (filesystem, cloud storage, etc.).
-type LogsStorage interface {
+type LogStorage interface {
+	// Create creates a new log file for the specified container and
+	// returns an [io.WriteCloser] to write directly to the storage.
+	Create(containerName string) (io.WriteCloser, error)
 	// Open returns a reader for the stored logs of the specified container.
 	Open(containerName string) (io.ReadCloser, error)
 }
 
-// ContainerLogsService provides a unified interface for accessing container logs
+// ContainerLogService provides a unified interface for accessing container logs
 // from both running containers and persisted storage. It automatically falls back
 // to stored logs when a container is not running.
-type ContainerLogsService struct {
+type ContainerLogService struct {
 	containerEngineClient ContainerEngineClient
-	logsStorage           LogsStorage
+	logsStorage           LogStorage
 }
 
 // NewContainerLogsService creates a new service for retrieving container logs.
 // It requires both a container engine client for live logs and a storage backend for persisted logs.
 func NewContainerLogsService(
 	containerEngineClient ContainerEngineClient,
-	storage LogsStorage,
-) *ContainerLogsService {
-	return &ContainerLogsService{
+	storage LogStorage,
+) *ContainerLogService {
+	return &ContainerLogService{
 		containerEngineClient: containerEngineClient,
 		logsStorage:           storage,
 	}
@@ -58,7 +61,7 @@ func NewContainerLogsService(
 // GetContainerLogs retrieves logs for the specified container, attempting to get live logs first
 // and falling back to stored logs if the container is not running. The returned stream is filtered
 // according to the query parameters for stdout/stderr inclusion.
-func (s *ContainerLogsService) GetContainerLogs(
+func (s *ContainerLogService) GetContainerLogs(
 	ctx context.Context,
 	query LogsQuery,
 ) (io.ReadCloser, error) {
@@ -77,7 +80,7 @@ func (s *ContainerLogsService) GetContainerLogs(
 				return nil, fmt.Errorf("open log file: %w", err)
 			}
 
-			return NewLogsFilterReader(r, query.IncludeStdout, query.IncludeStderr), nil
+			return NewLogsFilterReader(r, false, query.IncludeStdout, query.IncludeStderr), nil
 		}
 
 		return nil, fmt.Errorf("get container logs: %w", err)
@@ -93,8 +96,8 @@ type LogsFilterReader struct {
 	rc            io.ReadCloser
 	includeStdout bool
 	includeStderr bool
-
-	cur *io.LimitedReader
+	tty           bool
+	cur           *io.LimitedReader
 }
 
 // NewLogsFilterReader creates a new filtered log reader that selectively includes
@@ -103,23 +106,25 @@ type LogsFilterReader struct {
 func NewLogsFilterReader(
 	rc io.ReadCloser,
 	includeStdout,
-	includeStderr bool,
+	includeStderr,
+	tty bool,
 ) *LogsFilterReader {
 	return &LogsFilterReader{
 		rc:            rc,
+		tty:           tty,
 		includeStdout: includeStdout,
 		includeStderr: includeStderr,
 	}
 }
 
-// Read implements io.Reader, filtering the log stream to include only the requested
-// stream types (stdout/stderr). It handles the Docker multiplexed log format by
-// parsing stream headers and selectively forwarding content.
 func (r *LogsFilterReader) Read(p []byte) (n int, err error) {
-	// if r.tty {
-	// 	return r.rc.Read(p)
-	// }
+	// TTY container's logs can be read as-is.
+	if r.tty {
+		return r.rc.Read(p)
+	}
 
+	// Non TTY containers logs are multiplexed and need to be parsed.
+	// See: https://pkg.go.dev/github.com/docker/docker/client#Client.ContainerLogs
 	var hdr [8]byte
 	for {
 		if r.cur != nil {
@@ -140,8 +145,8 @@ func (r *LogsFilterReader) Read(p []byte) (n int, err error) {
 			continue
 		}
 
-		allowed := (stream == 1 && r.includeStdout) || (stream == 2 && r.includeStderr)
-		if !allowed {
+		isIncluded := (stream == 1 && r.includeStdout) || (stream == 2 && r.includeStderr)
+		if !isIncluded {
 			if _, err := io.CopyN(io.Discard, r.rc, int64(size)); err != nil {
 				return 0, err
 			}

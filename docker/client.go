@@ -21,14 +21,14 @@ type Client struct {
 }
 
 // NewClient returns a new Client wrapping the given Docker Engine API client.
-func NewClient(client *client.Client) *Client {
-	return &Client{client}
+func NewClient(apiClient *client.Client) *Client {
+	return &Client{apiClient}
 }
 
 func (c *Client) ListContainers(ctx context.Context) ([]dockerlogproxy.Container, error) {
 	ctrs, err := c.apiClient.ContainerList(ctx, client.ContainerListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("list containers: %w", err)
+		return nil, fmt.Errorf("list Docker containers: %w", err)
 	}
 
 	res := make([]dockerlogproxy.Container, len(ctrs))
@@ -36,7 +36,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]dockerlogproxy.Container
 		// Retrieve the container canonical name.
 		ctrInfo, err := c.apiClient.ContainerInspect(ctx, ctr.ID)
 		if err != nil {
-			return nil, fmt.Errorf("inspect container %s: %w", ctr.ID, err)
+			return nil, fmt.Errorf("inspect Docker container %s: %w", ctr.ID, err)
 		}
 
 		// Because of historical reasons container names are stored as path.
@@ -108,8 +108,28 @@ func (c *Client) FetchContainerLogs(
 				Message: err.Error(),
 			}
 		}
-		return nil, fmt.Errorf("get container logs: %w", err)
+		return nil, fmt.Errorf("get Docker container logs: %w", err)
 	}
 
-	return dockerlogproxy.NewLogsFilterReader(r, query.IncludeStdout, query.IncludeStderr), nil
+	// If it is a TTY container the log stream doesn't need to be demux.
+	isTTY, err := c.isTTY(ctx, query.ContainerName)
+	if err != nil {
+		return nil, fmt.Errorf("check if tty container: %w", err)
+	}
+
+	return dockerlogproxy.NewLogsFilterReader(
+		r,
+		isTTY,
+		query.IncludeStdout,
+		query.IncludeStderr,
+	), nil
+}
+
+func (c *Client) isTTY(ctx context.Context, containerName string) (bool, error) {
+	containerInfo, err := c.apiClient.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return false, fmt.Errorf("inspect Docker container: %w", err)
+	}
+
+	return containerInfo.Config.Tty, nil
 }

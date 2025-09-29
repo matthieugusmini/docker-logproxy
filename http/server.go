@@ -66,10 +66,10 @@ func handleLogs(containerLogsSvc ContainerLogsService) http.HandlerFunc {
 		if err != nil {
 			var dlperr *dockerlogproxy.Error
 			if errors.As(err, &dlperr) && dlperr.Code == dockerlogproxy.ErrorCodeContainerNotFound {
-				w.WriteHeader(http.StatusNotFound)
+				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			w.WriteHeader(http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 		defer logsReader.Close()

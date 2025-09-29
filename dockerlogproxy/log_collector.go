@@ -8,6 +8,8 @@ import (
 	"os"
 	"slices"
 	"sync"
+
+	"github.com/moby/moby/api/pkg/stdcopy"
 )
 
 // ContainerEngineClient provides access to live container logs from a container engine.
@@ -19,12 +21,6 @@ type ContainerEngineClient interface {
 	// The query specifies which container and what type of logs to retrieve.
 	// Returns a stream of logs or an error if the container cannot be accessed.
 	FetchContainerLogs(ctx context.Context, query LogsQuery) (io.ReadCloser, error)
-}
-
-// LogStorage provides an interface for persisting container logs to a storage backend.
-type LogStorage interface {
-	// Create creates a new log file for the specified container and returns an [io.WriteCloser] to write directly to the storage.
-	Create(containerName string) (io.WriteCloser, error)
 }
 
 // LogCollectorOptions are optional parameters used to configure
@@ -97,7 +93,7 @@ func (lc *LogCollector) discoverContainers(ctx context.Context) error {
 		go func() {
 			defer lc.wg.Done()
 
-			if err := lc.collectContainerLogs(ctx, ctr.Name); err != nil {
+			if err := lc.collectContainerLogs(ctx, ctr); err != nil {
 				log.Printf("Stopped streaming logs for container %s: %v", ctr.Name, err)
 			}
 		}()
@@ -121,7 +117,7 @@ func (lc *LogCollector) watchContainers(ctx context.Context) error {
 			go func() {
 				defer lc.wg.Done()
 
-				if err := lc.collectContainerLogs(ctx, ctr.Name); err != nil {
+				if err := lc.collectContainerLogs(ctx, ctr); err != nil {
 					log.Printf("Stopped streaming logs for container %s: %v", ctr.Name, err)
 				}
 			}()
@@ -132,28 +128,33 @@ func (lc *LogCollector) watchContainers(ctx context.Context) error {
 	}
 }
 
-func (lc *LogCollector) collectContainerLogs(ctx context.Context, containerName string) error {
+func (lc *LogCollector) collectContainerLogs(ctx context.Context, container Container) error {
 	r, err := lc.client.FetchContainerLogs(ctx, LogsQuery{
-		ContainerName: containerName,
+		ContainerName: container.Name,
 		IncludeStdout: true,
 		IncludeStderr: true,
 		Follow:        true,
 	})
 	if err != nil {
-		return fmt.Errorf("container logs: %w", err)
+		return fmt.Errorf("fetch container logs: %w", err)
 	}
 	defer r.Close()
 
-	path := fmt.Sprintf("%s.log", containerName)
+	path := fmt.Sprintf("%s.log", container.Name)
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create log file: %w", err)
 	}
 	defer f.Close()
 
-	_, err = io.Copy(f, r)
+	var w io.Writer = f
+	if container.TTY {
+		w = stdcopy.NewStdWriter(f, stdcopy.Stdout)
+	}
+
+	_, err = io.Copy(w, r)
 	if err != nil {
-		return fmt.Errorf("copy: %w", err)
+		return fmt.Errorf("copy logs to file: %w", err)
 	}
 
 	return nil
