@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 )
 
@@ -42,19 +43,19 @@ type LogStorage interface {
 // from both running containers and persisted storage. It automatically falls back
 // to stored logs when a container is not running.
 type ContainerLogService struct {
-	containerEngineClient ContainerEngineClient
-	logsStorage           LogStorage
+	dockerClient DockerClient
+	logsStorage  LogStorage
 }
 
 // NewContainerLogsService creates a new service for retrieving container logs.
 // It requires both a container engine client for live logs and a storage backend for persisted logs.
 func NewContainerLogsService(
-	containerEngineClient ContainerEngineClient,
+	containerEngineClient DockerClient,
 	storage LogStorage,
 ) *ContainerLogService {
 	return &ContainerLogService{
-		containerEngineClient: containerEngineClient,
-		logsStorage:           storage,
+		dockerClient: containerEngineClient,
+		logsStorage:  storage,
 	}
 }
 
@@ -65,7 +66,7 @@ func (s *ContainerLogService) GetContainerLogs(
 	ctx context.Context,
 	query LogsQuery,
 ) (io.ReadCloser, error) {
-	r, err := s.containerEngineClient.FetchContainerLogs(ctx, query)
+	r, err := s.dockerClient.FetchContainerLogs(ctx, query)
 	if err != nil {
 		var lerr *Error
 		if errors.As(err, &lerr) && lerr.Code == ErrorCodeContainerNotFound {
@@ -117,15 +118,24 @@ func NewLogsFilterReader(
 	}
 }
 
+const (
+	headerSize            = 8
+	headerStreamByteIndex = 0
+
+	streamStdout = 1
+	streamStderr = 2
+)
+
 func (r *LogsFilterReader) Read(p []byte) (n int, err error) {
 	// TTY container's logs can be read as-is.
 	if r.tty {
+		log.Println("TTY")
 		return r.rc.Read(p)
 	}
 
 	// Non TTY containers logs are multiplexed and need to be parsed.
 	// See: https://pkg.go.dev/github.com/docker/docker/client#Client.ContainerLogs
-	var hdr [8]byte
+	var hdr [headerSize]byte
 	for {
 		if r.cur != nil {
 			n, err := r.cur.Read(p)
@@ -139,13 +149,14 @@ func (r *LogsFilterReader) Read(p []byte) (n int, err error) {
 			return 0, err
 		}
 
-		stream := hdr[0]
+		stream := hdr[headerStreamByteIndex]
 		size := binary.BigEndian.Uint32(hdr[4:])
 		if size == 0 {
 			continue
 		}
 
-		isIncluded := (stream == 1 && r.includeStdout) || (stream == 2 && r.includeStderr)
+		isIncluded := (stream == streamStdout && r.includeStdout) ||
+			(stream == streamStderr && r.includeStderr)
 		if !isIncluded {
 			if _, err := io.CopyN(io.Discard, r.rc, int64(size)); err != nil {
 				return 0, err

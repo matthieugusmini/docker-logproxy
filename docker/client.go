@@ -119,9 +119,9 @@ func (c *Client) FetchContainerLogs(
 
 	return dockerlogproxy.NewLogsFilterReader(
 		r,
-		isTTY,
 		query.IncludeStdout,
 		query.IncludeStderr,
+		isTTY,
 	), nil
 }
 

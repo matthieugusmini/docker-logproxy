@@ -4,18 +4,24 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/moby/moby/client"
 
 	"github.com/matthieugusmini/docker-logproxy/docker"
 	"github.com/matthieugusmini/docker-logproxy/dockerlogproxy"
+	"github.com/matthieugusmini/docker-logproxy/filesystem"
 	"github.com/matthieugusmini/docker-logproxy/http"
-	"github.com/matthieugusmini/docker-logproxy/storage"
+)
+
+const (
+	defaultLogDir = "logs"
 )
 
 func main() {
@@ -47,7 +53,7 @@ func run(ctx context.Context, args []string) error {
 		Level: slog.LevelInfo,
 	}))
 
-	storage := &storage.Filesystem{}
+	storage := filesystem.NewLogStorage(defaultLogDir)
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -65,12 +71,24 @@ func run(ctx context.Context, args []string) error {
 	)
 	go func() {
 		if err := lc.Run(ctx); err != nil {
+			log.Println(err)
 			// handle error
 		}
 	}()
 
 	logSvc := dockerlogproxy.NewContainerLogsService(dockerClient, storage)
-	srv := http.NewServer(logSvc)
+	srv := http.NewServer(ctx, logSvc)
+
+	go func() {
+		<-ctx.Done()
+		logger.Info("Server shutting down...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			logger.Error("Server shut down", slog.Any("error", err))
+		}
+	}()
 
 	logger.Info("Start listening", slog.String("addr", srv.Addr))
 	if err := srv.ListenAndServe(); err != nil {

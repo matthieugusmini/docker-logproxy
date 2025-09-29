@@ -5,16 +5,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"slices"
 	"sync"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 )
 
-// ContainerEngineClient provides access to live container logs from a container engine.
-// It abstracts the container runtime (Docker, containerd, etc.) for log retrieval.
-type ContainerEngineClient interface {
+type DockerClient interface {
 	ListContainers(ctx context.Context) ([]Container, error)
 	WatchContainersStart(ctx context.Context) (<-chan Container, <-chan error)
 	// FetchContainerLogs retrieves a stream of logs from a running container.
@@ -35,26 +32,26 @@ type LogCollectorOptions struct {
 // It automatically discovers running containers and watches for new containers,
 // streaming their logs to the configured storage backend.
 type LogCollector struct {
-	client  ContainerEngineClient
-	storage LogStorage
-	logger  *slog.Logger
-	wg      sync.WaitGroup
-	options LogCollectorOptions
+	dockerClient DockerClient
+	storage      LogStorage
+	logger       *slog.Logger
+	wg           sync.WaitGroup
+	options      LogCollectorOptions
 }
 
 // NewLogCollector creates a new log collector that will monitor containers
 // and stream their logs to the provided storage backend.
 func NewLogCollector(
-	apiClient ContainerEngineClient,
+	apiClient DockerClient,
 	storage LogStorage,
 	logger *slog.Logger,
 	opts LogCollectorOptions,
 ) *LogCollector {
 	return &LogCollector{
-		client:  apiClient,
-		storage: storage,
-		logger:  logger,
-		options: opts,
+		dockerClient: apiClient,
+		storage:      storage,
+		logger:       logger,
+		options:      opts,
 	}
 }
 
@@ -82,7 +79,7 @@ func (lc *LogCollector) Run(ctx context.Context) error {
 }
 
 func (lc *LogCollector) discoverContainers(ctx context.Context) error {
-	containers, err := lc.client.ListContainers(ctx)
+	containers, err := lc.dockerClient.ListContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("list containers: %w", err)
 	}
@@ -110,10 +107,10 @@ func (lc *LogCollector) discoverContainers(ctx context.Context) error {
 }
 
 func (lc *LogCollector) watchContainers(ctx context.Context) error {
-	ctrEv, errs := lc.client.WatchContainersStart(ctx)
+	containerEvents, errs := lc.dockerClient.WatchContainersStart(ctx)
 	for {
 		select {
-		case ctr := <-ctrEv:
+		case ctr := <-containerEvents:
 			if !lc.shouldWatchContainer(ctr.Name) {
 				continue
 			}
@@ -145,7 +142,7 @@ func (lc *LogCollector) collectContainerLogs(ctx context.Context, container Cont
 		slog.Bool("tty", container.TTY),
 	)
 
-	r, err := lc.client.FetchContainerLogs(ctx, LogsQuery{
+	r, err := lc.dockerClient.FetchContainerLogs(ctx, LogsQuery{
 		ContainerName: container.Name,
 		IncludeStdout: true,
 		IncludeStderr: true,
@@ -157,7 +154,7 @@ func (lc *LogCollector) collectContainerLogs(ctx context.Context, container Cont
 	defer r.Close()
 
 	path := fmt.Sprintf("%s.log", container.Name)
-	f, err := os.Create(path)
+	f, err := lc.storage.Create(path)
 	if err != nil {
 		return fmt.Errorf("create log file: %w", err)
 	}
