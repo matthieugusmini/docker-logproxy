@@ -4,7 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -43,31 +43,36 @@ func run(ctx context.Context, args []string) error {
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
 	storage := &storage.Filesystem{}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return fmt.Errorf("new Docker Engine API client: %w", err)
 	}
-
 	dockerClient := docker.NewClient(cli)
 
-	lc := dockerlogproxy.NewLogCollector(dockerClient, storage, dockerlogproxy.LogCollectorOptions{
-		Containers: containers,
-	})
-
+	lc := dockerlogproxy.NewLogCollector(
+		dockerClient,
+		storage,
+		logger,
+		dockerlogproxy.LogCollectorOptions{
+			Containers: containers,
+		},
+	)
 	go func() {
 		if err := lc.Run(ctx); err != nil {
-			// return fmt.Errorf("discover and watch Docker containers: %w", err)
-			log.Fatal(err)
+			// handle error
 		}
 	}()
 
 	logSvc := dockerlogproxy.NewContainerLogsService(dockerClient, storage)
-
 	srv := http.NewServer(logSvc)
 
-	log.Println("Listening on port :8080")
+	logger.Info("Start listening", slog.String("addr", srv.Addr))
 	if err := srv.ListenAndServe(); err != nil {
 		return fmt.Errorf("listen and server: %w", err)
 	}

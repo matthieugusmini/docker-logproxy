@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"slices"
 	"sync"
@@ -37,6 +37,7 @@ type LogCollectorOptions struct {
 type LogCollector struct {
 	client  ContainerEngineClient
 	storage LogStorage
+	logger  *slog.Logger
 	wg      sync.WaitGroup
 	options LogCollectorOptions
 }
@@ -46,11 +47,13 @@ type LogCollector struct {
 func NewLogCollector(
 	apiClient ContainerEngineClient,
 	storage LogStorage,
+	logger *slog.Logger,
 	opts LogCollectorOptions,
 ) *LogCollector {
 	return &LogCollector{
 		client:  apiClient,
 		storage: storage,
+		logger:  logger,
 		options: opts,
 	}
 }
@@ -94,7 +97,11 @@ func (lc *LogCollector) discoverContainers(ctx context.Context) error {
 			defer lc.wg.Done()
 
 			if err := lc.collectContainerLogs(ctx, ctr); err != nil {
-				log.Printf("Stopped streaming logs for container %s: %v", ctr.Name, err)
+				lc.logger.Error(
+					"Stopped collecting logs",
+					slog.Any("error", err),
+					slog.String("containerName", ctr.Name),
+				)
 			}
 		}()
 	}
@@ -111,14 +118,16 @@ func (lc *LogCollector) watchContainers(ctx context.Context) error {
 				continue
 			}
 
-			log.Printf("New container detected [%s]", ctr.Name)
-
 			lc.wg.Add(1)
 			go func() {
 				defer lc.wg.Done()
 
 				if err := lc.collectContainerLogs(ctx, ctr); err != nil {
-					log.Printf("Stopped streaming logs for container %s: %v", ctr.Name, err)
+					lc.logger.Error(
+						"Stopped collecting logs",
+						slog.Any("error", err),
+						slog.String("containerName", ctr.Name),
+					)
 				}
 			}()
 
@@ -129,6 +138,13 @@ func (lc *LogCollector) watchContainers(ctx context.Context) error {
 }
 
 func (lc *LogCollector) collectContainerLogs(ctx context.Context, container Container) error {
+	lc.logger.Info(
+		"Start collecting logs",
+		slog.String("containerName", container.Name),
+		slog.String("containerId", container.ID),
+		slog.Bool("tty", container.TTY),
+	)
+
 	r, err := lc.client.FetchContainerLogs(ctx, LogsQuery{
 		ContainerName: container.Name,
 		IncludeStdout: true,
