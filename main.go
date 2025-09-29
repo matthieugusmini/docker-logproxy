@@ -69,6 +69,10 @@ func run(ctx context.Context, args []string) error {
 			Containers: containers,
 		},
 	)
+
+	logSvc := dockerlogproxy.NewDockerLogService(dockerClient, storage, logger)
+	srv := http.NewServer(ctx, logSvc)
+
 	go func() {
 		if err := lc.Run(ctx); err != nil {
 			log.Println(err)
@@ -76,23 +80,21 @@ func run(ctx context.Context, args []string) error {
 		}
 	}()
 
-	logSvc := dockerlogproxy.NewContainerLogsService(dockerClient, storage)
-	srv := http.NewServer(ctx, logSvc)
-
 	go func() {
-		<-ctx.Done()
-		logger.Info("Server shutting down...")
-
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(ctx); err != nil {
-			logger.Error("Server shut down", slog.Any("error", err))
+		logger.Info("Start listening", slog.String("addr", srv.Addr))
+		if err := srv.ListenAndServe(); err != nil {
+			log.Println(err)
 		}
 	}()
 
-	logger.Info("Start listening", slog.String("addr", srv.Addr))
-	if err := srv.ListenAndServe(); err != nil {
-		return fmt.Errorf("listen and server: %w", err)
+	<-ctx.Done()
+	logger.Info("Server shutting down...")
+	// The base context has already been canceled so we create a new one
+	// to shutdown the server.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("Server shut down", slog.Any("error", err))
 	}
 
 	return nil

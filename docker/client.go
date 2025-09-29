@@ -1,12 +1,15 @@
 package docker
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/containerd/errdefs"
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/api/types/filters"
 	"github.com/moby/moby/client"
@@ -14,27 +17,32 @@ import (
 	"github.com/matthieugusmini/docker-logproxy/dockerlogproxy"
 )
 
-// Client is a wrapper around a Docker Engine API client that provides
-// simplified access to container logs with proper error handling.
+const (
+	streamStdout = "stdout"
+	streamStderr = "stderr"
+)
+
+// Client is an adapter for the Docker Engine API client to our domain.
 type Client struct {
-	apiClient *client.Client
+	dockerClient *client.Client
 }
 
-// NewClient returns a new Client wrapping the given Docker Engine API client.
-func NewClient(apiClient *client.Client) *Client {
-	return &Client{apiClient}
+// NewClient returns a new [Client] wrapping the given Docker Engine API client.
+func NewClient(dockerClient *client.Client) *Client {
+	return &Client{dockerClient}
 }
 
+// ListContainers fetches the list of running containers.
 func (c *Client) ListContainers(ctx context.Context) ([]dockerlogproxy.Container, error) {
-	ctrs, err := c.apiClient.ContainerList(ctx, client.ContainerListOptions{})
+	containers, err := c.dockerClient.ContainerList(ctx, client.ContainerListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list Docker containers: %w", err)
 	}
 
-	res := make([]dockerlogproxy.Container, len(ctrs))
-	for i, ctr := range ctrs {
+	res := make([]dockerlogproxy.Container, len(containers))
+	for i, ctr := range containers {
 		// Retrieve the container canonical name.
-		ctrInfo, err := c.apiClient.ContainerInspect(ctx, ctr.ID)
+		ctrInfo, err := c.dockerClient.ContainerInspect(ctx, ctr.ID)
 		if err != nil {
 			return nil, fmt.Errorf("inspect Docker container %s: %w", ctr.ID, err)
 		}
@@ -63,7 +71,7 @@ func (c *Client) WatchContainersStart(
 		filters.Arg("type", string(events.ContainerEventType)),
 		filters.Arg("event", "start"),
 	)
-	eventsCh, errs := c.apiClient.Events(ctx, client.EventsListOptions{
+	eventsCh, errs := c.dockerClient.Events(ctx, client.EventsListOptions{
 		Filters: filters,
 	})
 
@@ -89,13 +97,12 @@ func (c *Client) WatchContainersStart(
 }
 
 // FetchContainerLogs returns a filtered stream of logs from the specified Docker container.
-// It automatically handles Docker-specific error conditions and converts them to domain errors.
-// The returned stream respects the query parameters for stdout/stderr filtering and follow behavior.
+// If the container cannot be found it returns a [*dockerlogproxy.Error].
 func (c *Client) FetchContainerLogs(
 	ctx context.Context,
 	query dockerlogproxy.LogsQuery,
 ) (io.ReadCloser, error) {
-	r, err := c.apiClient.ContainerLogs(ctx, query.ContainerName, client.ContainerLogsOptions{
+	r, err := c.dockerClient.ContainerLogs(ctx, query.ContainerName, client.ContainerLogsOptions{
 		ShowStdout: query.IncludeStdout,
 		ShowStderr: query.IncludeStderr,
 		Timestamps: true,
@@ -117,19 +124,100 @@ func (c *Client) FetchContainerLogs(
 		return nil, fmt.Errorf("check if tty container: %w", err)
 	}
 
-	return dockerlogproxy.NewLogsFilterReader(
-		r,
-		query.IncludeStdout,
-		query.IncludeStderr,
-		isTTY,
-	), nil
+	pr, pw := io.Pipe()
+
+	// The log stream returned by the API can be in different format depending on
+	// whether the container is a TTY container or not. We standardize the
+	// output for easier manipulation downstream.
+	go func() {
+		defer r.Close()
+		defer pw.Close()
+
+		var err error
+		if isTTY {
+			_, err = io.Copy(newNDJSONWriter(pw, streamStdout), r)
+			if err != nil {
+				_ = pw.CloseWithError(err)
+				return
+			}
+		}
+
+		outw := newNDJSONWriter(pw, streamStdout)
+		errw := newNDJSONWriter(pw, streamStderr)
+		_, err = stdcopy.StdCopy(outw, errw, r)
+		if err != nil {
+			_ = pw.CloseWithError(err)
+		}
+	}()
+
+	return pr, nil
 }
 
 func (c *Client) isTTY(ctx context.Context, containerName string) (bool, error) {
-	containerInfo, err := c.apiClient.ContainerInspect(ctx, containerName)
+	containerInfo, err := c.dockerClient.ContainerInspect(ctx, containerName)
 	if err != nil {
 		return false, fmt.Errorf("inspect Docker container: %w", err)
 	}
 
 	return containerInfo.Config.Tty, nil
+}
+
+type ndjsonWriter struct {
+	stream  string
+	encoder *json.Encoder
+	buf     bytes.Buffer
+}
+
+func newNDJSONWriter(w io.Writer, stream string) *ndjsonWriter {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	return &ndjsonWriter{
+		stream:  stream,
+		encoder: enc,
+	}
+}
+
+func (w *ndjsonWriter) Write(p []byte) (int, error) {
+	n, err := w.buf.Write(p)
+	if err != nil {
+		return n, err
+	}
+
+	for {
+		data := w.buf.Bytes()
+		nlIdx := bytes.IndexByte(data, '\n')
+		// Wait for more writes to complete a line.
+		if nlIdx == -1 {
+			break
+		}
+
+		line := data[:nlIdx+1]
+
+		w.buf.Next(nlIdx + 1)
+
+		rec := dockerlogproxy.LogRecord{
+			Stream: w.stream,
+			Log:    line,
+		}
+		if err := w.encoder.Encode(&rec); err != nil {
+			return n, err
+		}
+	}
+
+	return n, nil
+}
+
+func (w *ndjsonWriter) Close() error {
+	// Flush the buffer if there is any remaining logs.
+	if w.buf.Len() > 0 {
+		rec := dockerlogproxy.LogRecord{
+			Stream: w.stream,
+			Log:    w.buf.Bytes(),
+		}
+		if err := w.encoder.Encode(&rec); err != nil {
+			return err
+		}
+		w.buf.Reset()
+	}
+	return nil
 }

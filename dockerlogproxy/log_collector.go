@@ -7,17 +7,30 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
-
-	"github.com/moby/moby/api/pkg/stdcopy"
 )
 
 type DockerClient interface {
+	// ListContainers returns a slice representing all running containers in Docker.
 	ListContainers(ctx context.Context) ([]Container, error)
+
+	// WatchContainersStart watches for new running container.
 	WatchContainersStart(ctx context.Context) (<-chan Container, <-chan error)
-	// FetchContainerLogs retrieves a stream of logs from a running container.
+
+	// FetchContainerLogs retrieves a stream of logs from a running container
+	// formatted in NDJSON format.
 	// The query specifies which container and what type of logs to retrieve.
-	// Returns a stream of logs or an error if the container cannot be accessed.
 	FetchContainerLogs(ctx context.Context, query LogsQuery) (io.ReadCloser, error)
+}
+
+// LogsStorage provides access to persisted container logs from a storage backend.
+// It abstracts the underlying storage mechanism (filesystem, cloud storage, etc.).
+type LogStorage interface {
+	// Create creates a new log file for the specified container and
+	// returns an [io.WriteCloser] to write directly to the storage.
+	Create(containerName string) (io.WriteCloser, error)
+
+	// Open returns a reader for the stored logs of the specified container.
+	Open(containerName string) (io.ReadCloser, error)
 }
 
 // LogCollectorOptions are optional parameters used to configure
@@ -28,9 +41,7 @@ type LogCollectorOptions struct {
 	Containers []string
 }
 
-// LogCollector monitors Docker containers, collects their logs and saves them to storage.
-// It automatically discovers running containers and watches for new containers,
-// streaming their logs to the configured storage backend.
+// LogCollector monitors Docker containers, collects their logs and saves them to storage backend.
 type LogCollector struct {
 	dockerClient DockerClient
 	storage      LogStorage
@@ -142,6 +153,8 @@ func (lc *LogCollector) collectContainerLogs(ctx context.Context, container Cont
 		slog.Bool("tty", container.TTY),
 	)
 
+	// We include everything here to make sure we can filter them later
+	// if needed.
 	r, err := lc.dockerClient.FetchContainerLogs(ctx, LogsQuery{
 		ContainerName: container.Name,
 		IncludeStdout: true,
@@ -160,12 +173,7 @@ func (lc *LogCollector) collectContainerLogs(ctx context.Context, container Cont
 	}
 	defer f.Close()
 
-	var w io.Writer = f
-	if container.TTY {
-		w = stdcopy.NewStdWriter(f, stdcopy.Stdout)
-	}
-
-	_, err = io.Copy(w, r)
+	_, err = io.Copy(f, r)
 	if err != nil {
 		return fmt.Errorf("copy logs to file: %w", err)
 	}

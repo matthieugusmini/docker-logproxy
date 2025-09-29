@@ -9,10 +9,11 @@ const (
 	ErrorCodeContainerNotFound = "CONTAINER_NOT_FOUND"
 )
 
-// Error represents a domain-specific error with a structured error code and message.
+// Error represents a domain-specific error.
 type Error struct {
 	// Code is the specific error type that occurred
 	Code ErrorCode
+
 	// Message provides human-readable details about the error
 	Message string
 }

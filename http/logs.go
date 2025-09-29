@@ -8,14 +8,14 @@ import (
 	"github.com/matthieugusmini/docker-logproxy/dockerlogproxy"
 )
 
-func handleLogs(containerLogsSvc ContainerLogsService) http.HandlerFunc {
+func handleLogs(dockerLogSvc DockerLogService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		containerName := r.PathValue("name")
 
 		q := r.URL.Query()
-		includeStdout := q.Get("stdout") == "1"
 		// stderr is included by default. It is excluded only if explicitly turned off.
 		includeStderr := q.Get("stderr") != "0"
+		includeStdout := q.Get("stdout") == "1"
 		if !includeStderr && !includeStdout {
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusOK)
@@ -24,7 +24,7 @@ func handleLogs(containerLogsSvc ContainerLogsService) http.HandlerFunc {
 
 		follow := q.Get("follow") == "1"
 
-		logsReader, err := containerLogsSvc.GetContainerLogs(
+		logs, err := dockerLogSvc.GetContainerLogs(
 			r.Context(),
 			dockerlogproxy.LogsQuery{
 				ContainerName: containerName,
@@ -34,18 +34,18 @@ func handleLogs(containerLogsSvc ContainerLogsService) http.HandlerFunc {
 			},
 		)
 		if err != nil {
-			var dlperr *dockerlogproxy.Error
-			if errors.As(err, &dlperr) && dlperr.Code == dockerlogproxy.ErrorCodeContainerNotFound {
+			var derr *dockerlogproxy.Error
+			if errors.As(err, &derr) && derr.Code == dockerlogproxy.ErrorCodeContainerNotFound {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		defer logsReader.Close()
+		defer logs.Close()
 
 		w.Header().Set("Content-Type", "text/plain")
-		_, _ = io.Copy(newResponseStreamer(w), logsReader)
+		_, _ = io.Copy(newResponseStreamer(w), logs)
 	}
 }
 
@@ -65,6 +65,8 @@ func newResponseStreamer(rw http.ResponseWriter) *responseStreamer {
 
 func (rs *responseStreamer) Write(p []byte) (int, error) {
 	n, err := rs.rw.Write(p)
-	rs.rc.Flush()
+	if n > 0 {
+		rs.rc.Flush()
+	}
 	return n, err
 }

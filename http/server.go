@@ -15,21 +15,21 @@ var (
 	defaultReadHeaderTimeout = 5 * time.Second
 )
 
-// ContainerLogsService defines the interface for retrieving container logs.
-// Implementations should handle both live and historical log retrieval.
-type ContainerLogsService interface {
+// DockerLogService defines the interface for retrieving Docker container logs.
+type DockerLogService interface {
 	// GetContainerLogs returns a logs stream of the queried container filtered
-	// based on the query parameters. If the container doesn't exist, it returns
-	// a dockerlogproxy.Error with the code "CONTAINER_NOT_FOUND".
+	// based on the query parameters.
+	//
+	// If the container doesn't exist, it returns a *[dockerlogproxy.Error] with the code "CONTAINER_NOT_FOUND".
 	GetContainerLogs(ctx context.Context, query dockerlogproxy.LogsQuery) (io.ReadCloser, error)
 }
 
 // NewServer returns a new http.Server configured with the logs API endpoints.
 // It sets up proper routing, timeouts, and integrates with the provided container logs service.
-func NewServer(ctx context.Context, containerLogsSvc ContainerLogsService) *http.Server {
+func NewServer(ctx context.Context, dockerLogSvc DockerLogService) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz())
-	mux.HandleFunc("GET /logs/{name}", handleLogs(containerLogsSvc))
+	mux.HandleFunc("GET /logs/{name}", handleLogs(dockerLogSvc))
 
 	return &http.Server{
 		Addr:              ":8080",
