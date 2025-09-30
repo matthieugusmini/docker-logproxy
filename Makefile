@@ -26,6 +26,11 @@ clean:
 test:
 	go test -v -race ./...
 
+.PHONY: test-integration
+## test-integration: Run integration tests
+test-integration:
+	go test -v -race -tags=integration ./...
+
 .PHONY: help
 ## help: Display this help message
 help:

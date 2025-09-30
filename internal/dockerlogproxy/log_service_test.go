@@ -1,3 +1,10 @@
+// NOTE: This unit test is here to showcase proper separation of concerns
+// that let us write test solely focused on the business logic, swapping
+// dependencies with test doubles.
+//
+// I personally think testing each layer of the architecture like this,
+// can be redundant as they're mostly all already tested by the integration
+// tests (main_test.go).
 package dockerlogproxy_test
 
 import (
@@ -172,23 +179,17 @@ func TestDockerLogService_GetContainerLogs(t *testing.T) {
 		}
 
 		if appErr.Code != dockerlogproxy.ErrorCodeContainerNotFound {
-			t.Errorf("expected error code CONTAINER_NOT_FOUND, got %s", appErr.Code)
+			t.Errorf(
+				"expected error code %s, got %s",
+				dockerlogproxy.ErrorCodeContainerNotFound,
+				appErr.Code,
+			)
 		}
 	})
 }
 
 type fakeDockerClient struct {
 	containers map[string][]dockerlogproxy.LogRecord
-}
-
-func (f *fakeDockerClient) ListContainers(ctx context.Context) ([]dockerlogproxy.Container, error) {
-	return nil, nil
-}
-
-func (f *fakeDockerClient) WatchContainersStart(
-	ctx context.Context,
-) (<-chan dockerlogproxy.Container, <-chan error) {
-	return nil, nil
 }
 
 func (f *fakeDockerClient) FetchContainerLogs(

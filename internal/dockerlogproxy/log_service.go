@@ -11,11 +11,19 @@ import (
 	"time"
 )
 
+type DockerLogFetcher interface {
+	// FetchContainerLogs retrieves a stream of logs from a running container.
+	// The stream is represented as NDJSON with each line being a representation
+	// of a [dockerlogproxy.LogRecord].
+	// The query specifies which container and what type of logs to retrieve.
+	FetchContainerLogs(ctx context.Context, query LogsQuery) (io.ReadCloser, error)
+}
+
 // DockerLogService provides a unified interface for accessing container logs
 // from both running containers and persisted storage. It automatically falls back
 // to stored logs when a container cannot be found in Docker.
 type DockerLogService struct {
-	dockerClient DockerClient
+	dockerClient DockerLogFetcher
 	logStorage   LogStorage
 	logger       *slog.Logger
 }
@@ -23,7 +31,7 @@ type DockerLogService struct {
 // NewDockerLogService creates a new service for retrieving Docker container logs
 // using the given Docker Engine API client or storage as a fallback.
 func NewDockerLogService(
-	dockerClient DockerClient,
+	dockerClient DockerLogFetcher,
 	storage LogStorage,
 	logger *slog.Logger,
 ) *DockerLogService {

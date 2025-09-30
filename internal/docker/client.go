@@ -30,7 +30,7 @@ func NewClient(dockerClient *client.Client) *Client {
 
 // ListContainers fetches the list of running containers.
 func (c *Client) ListContainers(ctx context.Context) ([]dockerlogproxy.Container, error) {
-	containers, err := c.dockerClient.ContainerList(ctx, client.ContainerListOptions{})
+	containers, err := c.dockerClient.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, fmt.Errorf("list Docker containers: %w", err)
 	}

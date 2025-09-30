@@ -37,6 +37,7 @@ func run(ctx context.Context, args []string) error {
 	var (
 		verbose    bool
 		port       string
+		logDir     string
 		containers stringSliceFlag
 	)
 
@@ -48,6 +49,7 @@ func run(ctx context.Context, args []string) error {
 	)
 	fs.BoolVar(&verbose, "v", false, "Enable debug logging (default: disabled)")
 	fs.StringVar(&port, "port", "8000", "Port on which the server should listen (default: 8000")
+	fs.StringVar(&logDir, "log-dir", defaultLogDir, "Directory where container logs are stored (default: logs)")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
@@ -64,7 +66,7 @@ func run(ctx context.Context, args []string) error {
 		Level: lvl,
 	}))
 
-	storage := filesystem.NewLogStorage(defaultLogDir)
+	storage := filesystem.NewLogStorage(logDir)
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
