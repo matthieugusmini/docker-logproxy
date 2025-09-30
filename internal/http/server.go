@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/matthieugusmini/docker-logproxy/dockerlogproxy"
+	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
 )
 
 var (

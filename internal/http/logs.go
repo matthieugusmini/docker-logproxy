@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/matthieugusmini/docker-logproxy/dockerlogproxy"
+	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
 )
 
 func handleLogs(dockerLogSvc DockerLogService) http.HandlerFunc {

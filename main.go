@@ -15,10 +15,10 @@ import (
 	"github.com/moby/moby/client"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/matthieugusmini/docker-logproxy/docker"
-	"github.com/matthieugusmini/docker-logproxy/dockerlogproxy"
-	"github.com/matthieugusmini/docker-logproxy/filesystem"
-	"github.com/matthieugusmini/docker-logproxy/http"
+	"github.com/matthieugusmini/docker-logproxy/internal/docker"
+	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
+	"github.com/matthieugusmini/docker-logproxy/internal/filesystem"
+	"github.com/matthieugusmini/docker-logproxy/internal/http"
 )
 
 const (

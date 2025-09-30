@@ -15,7 +15,7 @@ import (
 	"github.com/moby/moby/api/types/filters"
 	"github.com/moby/moby/client"
 
-	"github.com/matthieugusmini/docker-logproxy/dockerlogproxy"
+	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
 )
 
 const (
