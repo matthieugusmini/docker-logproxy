@@ -55,13 +55,13 @@ type LogsQuery struct {
 // LogRecord represents a log entry from a Docker container.
 type LogRecord struct {
 	// Timestamp reference the time at which the logs was emitted in the container.
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp time.Time `json:"timestamp,omitzero"`
 
 	// Stream is the stream to which the log was emitted. Either stderr or stdout.
-	Stream string `json:"streamType"`
+	Stream string `json:"stream"`
 
 	// Log is the raw log entry.
-	Log []byte `json:"output"`
+	Log string `json:"output"`
 }
 
 // GetContainerLogs retrieves logs for the specified container, attempting to get live logs first

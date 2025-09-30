@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/pkg/stdcopy"
@@ -142,9 +143,12 @@ func (c *Client) FetchContainerLogs(
 			}
 		}
 
-		outw := newNDJSONWriter(pw, streamStdout)
-		errw := newNDJSONWriter(pw, streamStderr)
-		_, err = stdcopy.StdCopy(outw, errw, r)
+		outW := newNDJSONWriter(pw, streamStdout)
+		errW := newNDJSONWriter(pw, streamStderr)
+		_, err = stdcopy.StdCopy(outW, errW, r)
+		// Flush remaining logs
+		_ = outW.Close()
+		_ = errW.Close()
 		if err != nil {
 			_ = pw.CloseWithError(err)
 		}
@@ -195,11 +199,7 @@ func (w *ndjsonWriter) Write(p []byte) (int, error) {
 
 		w.buf.Next(nlIdx + 1)
 
-		rec := dockerlogproxy.LogRecord{
-			Stream: w.stream,
-			Log:    line,
-		}
-		if err := w.encoder.Encode(&rec); err != nil {
+		if err := w.emit(line); err != nil {
 			return n, err
 		}
 	}
@@ -207,14 +207,32 @@ func (w *ndjsonWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+func (w *ndjsonWriter) emit(line []byte) error {
+	var (
+		ts  time.Time
+		err error
+	)
+	if sepIdx := bytes.IndexByte(line, ' '); sepIdx > 0 {
+		tok := string(line[:sepIdx])
+
+		if ts, err = time.Parse(time.RFC3339Nano, tok); err == nil { // NO ERROR
+			// strip timestamp prefix + separator
+			line = line[sepIdx+1:]
+		}
+	}
+
+	rec := dockerlogproxy.LogRecord{
+		Timestamp: ts,
+		Stream:    w.stream,
+		Log:       string(line),
+	}
+	return w.encoder.Encode(&rec)
+}
+
 func (w *ndjsonWriter) Close() error {
 	// Flush the buffer if there is any remaining logs.
 	if w.buf.Len() > 0 {
-		rec := dockerlogproxy.LogRecord{
-			Stream: w.stream,
-			Log:    w.buf.Bytes(),
-		}
-		if err := w.encoder.Encode(&rec); err != nil {
+		if err := w.emit(w.buf.Bytes()); err != nil {
 			return err
 		}
 		w.buf.Reset()

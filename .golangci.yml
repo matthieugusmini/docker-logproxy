@@ -25,6 +25,7 @@ linters:
     - noinlineerr
     - nonamedreturns
     - paralleltest # https://groups.google.com/g/golang-dev/c/RAKiqi44GEU/m/WkD64zvPR_0J
+    - perfsprint
     - tagalign
     - varnamelen
     - wrapcheck
@@ -71,7 +72,8 @@ linters:
 
     sloglint:
       # Less error-prone(report false-positive when arguments on multi-lines)
-      kv-only: true
+      # NOTE: Reports false-positives
+      # kv-only: true
       # Use dependency injection instead.
       no-global: "all"
       # https://go.dev/wiki/CodeReviewComments#error-strings
@@ -89,9 +91,6 @@ linters:
       - path: _test\.go
         linters:
           - noctx
-      - path: internal/gen/
-        linters:
-          - all
 
 formatters:
   enable:

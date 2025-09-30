@@ -24,6 +24,9 @@ type DockerClient interface {
 
 // LogsStorage provides access to persisted container logs from a storage backend.
 // It abstracts the underlying storage mechanism (filesystem, cloud storage, etc.).
+//
+// NOTE: We only wrote a filesystem implementation as for now for the test but we would
+// most likely also accept a [context.Context] for implementations using the network.
 type LogStorage interface {
 	// Create creates a new log file for the specified container and
 	// returns an [io.WriteCloser] to write directly to the storage.
@@ -166,8 +169,7 @@ func (lc *LogCollector) collectContainerLogs(ctx context.Context, container Cont
 	}
 	defer r.Close()
 
-	path := fmt.Sprintf("%s.log", container.Name)
-	f, err := lc.storage.Create(path)
+	f, err := lc.storage.Create(container.Name)
 	if err != nil {
 		return fmt.Errorf("create log file: %w", err)
 	}
