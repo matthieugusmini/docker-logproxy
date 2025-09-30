@@ -1,67 +1,197 @@
-# Create a Go rest API to proxify Docker's container logs
+# Docker Log Proxy
 
-The objective of this test is to save and provide the logs of a running docker
-container through a Go rest API.
+> A lightweight REST API for persistent Docker container log storage and retrieval
 
-## Requirements
+[![Go Report Card](https://goreportcard.com/badge/github.com/matthieugusmini/docker-logproxy)](https://goreportcard.com/report/github.com/matthieugusmini/docker-logproxy)
 
-* **Language**: you must use [Go](https://go.dev/)
-* **Depenencies**: the program must use only the Go stdlib and optionaly the
-[Docker Go client](https://pkg.go.dev/github.com/docker/docker/client).
+Docker Log Proxy monitors running Docker containers, captures their logs to the filesystem, and exposes them via a simple REST API. Logs remain accessible even after containers exit, making it ideal for debugging, auditing, and log aggregation workflows.
 
-Please, don't use other 3rd party dependency.
+## Features
 
-Share your program via a Git repository. Plase, keep the commit history.
+- 🔍 **Automatic Discovery** - Monitors all running containers or specific containers by name
+- 💾 **Persistent Storage** - Logs saved to filesystem and accessible after container termination
+- 🌊 **Real-time Streaming** - Stream logs as they're generated with `follow` parameter
+- 🎯 **Selective Output** - Filter stdout/stderr independently
+- 🚀 **Zero Configuration** - Works out of the box with sensible defaults
+- 🏗️ **Extensible Design** - Modular architecture for pluggable storage backends
 
-### Save logs
+## Architecture
 
-The program must save container's logs in its filesystem for the whole lifecycle
-of the container.
+```mermaid
+flowchart TD
+    A@{ shape: rect, label: "Log Collector" }-. Write logs .->B@{ shape: lin-cyl, label: "FS" }
+    A-. Fetch logs .->C@{ shape: rect, label: "Docker Engine" }
+    E@{ shape: rect, label: "HTTP Client"}-. GET /logs/{name} .->D
+    D@{ shape: rect, label: "REST API" }-. Read logs (fallback) .->B@{ shape: lin-cyl, label: "FS" }
+    D-. Fetch logs (filtered) .->C
+```
 
-To achieve it, you could connect to the docker engine on program start and
-detect running containers to store their logs.
+## Quick Start
 
-Alternatively, you can take a container name parameter on start.
+```bash
+# Build and run the proxy
+make build
+./docker-logproxy
 
-### Expose `GET /logs/<NAME>` endpoint
+# In another terminal, start a container
+docker run --name test-container alpine echo "Hello World"
 
-Expose an HTTP endpoint `GET /logs/<NAME>` where `<NAME>` is the name of a
-running container.
+# Retrieve the logs via REST API
+curl http://localhost:8000/logs/test-container
+```
 
-By default the endpoint must return all the container's `stderr` logs from the
-start of the container until now.
+## Prerequisites
 
-If the container doesn't exist, it must return a `404` status code.
+- **Go** 1.24.5 or higher
+- **Docker Engine** running locally or accessible via TCP
+- **Docker Socket Access** - typically requires `/var/run/docker.sock` permissions
 
-The response output must be a `plain/text` log content-type.
+## Installation
 
-The endpoint must continue to work after the container exited.
+### From Source
 
-### Add follow query string
+```bash
+# Clone the repository
+git clone https://github.com/matthieugusmini/docker-logproxy.git
+cd docker-logproxy
 
-Handle a `follow=1` query string parameter.
-When passed, the endpoint must return a log stream until the client disconnects or the container exit.
+# Build the binary
+make build
 
-### Bonus: more query string parameters
+# Run the application
+./docker-logproxy
+```
 
-The endpoint could accept query string options altering the response:
-* `stdout=1`: the endpoint must return also `stdout` logs.
-* `stderr=0`: the endpoint musn't return `stderr` logs.
+### Using Go Install
 
-## Evaluation
+```bash
+go install github.com/matthieugusmini/docker-logproxy@latest
+```
 
-* The code should meet the specified requirements.
-* The code should be well-commented and documented.
-* The program must handle errors appropriately.
-* The program must gracefully shutdown.
-* The program musn't leak resources and goroutines.
+## Usage
 
-Pay attention to the internal structure of the program.
-It should be designed to be easily extendable with new features (not requested
-for this test), such as:
+### Starting the Server
 
-* Change where the logs are stored, we could save them into AWS s3 for example
-* Accept both container's ID or container's name
-* Add other rest endpoints
-* Add authentication middleware
-* Add logs, metrics, ...
+Start the log proxy with default settings:
+
+```bash
+./docker-logproxy
+```
+
+The server will:
+1. Connect to the Docker daemon
+2. Discover all running containers
+3. Start capturing logs to `./logs` directory
+4. Expose the REST API on `http://localhost:8000`
+
+### Command-line Flags
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-port` | HTTP server port | `8000` |
+| `-log-dir` | Directory where container logs are stored | `logs` |
+| `-containers` | Comma-separated list of container names to watch | All containers |
+| `-v` | Enable debug logging | `false` |
+
+**Examples:**
+
+```bash
+# Watch specific containers only
+./docker-logproxy -containers nginx,redis
+
+# Use custom port
+./docker-logproxy -port 3000
+
+# Store logs in custom directory
+./docker-logproxy -log-dir /var/log/containers
+
+# Enable verbose logging
+./docker-logproxy -v
+```
+
+### API Endpoints
+
+#### `GET /logs/{name}`
+
+Retrieve logs for a specific container.
+
+**Path Parameters:**
+- `name` (required) - Container name
+
+**Query Parameters:**
+- `follow` - Stream logs in real-time (`0` or `1`, default: `0`)
+- `stdout` - Include stdout logs (`0` or `1`, default: `0`)
+- `stderr` - Include stderr logs (`0` or `1`, default: `1`)
+
+**Response:**
+- `200 OK` - Returns logs as `text/plain`
+- `404 Not Found` - Container not found
+
+### Log Storage
+
+Logs are stored in the `./logs` directory by default (configurable via `-log-dir` flag), organized by container name:
+
+```
+logs/
+├── nginx.log
+├── redis.log
+└── app-container.log
+```
+
+## Examples
+
+### Get stderr logs (default behavior)
+
+```bash
+curl http://localhost:8000/logs/nginx
+```
+
+### Stream logs in real-time
+
+```bash
+curl http://localhost:8000/logs/nginx?follow=1
+```
+
+### Get both stdout and stderr logs
+
+```bash
+curl http://localhost:8000/logs/nginx?stdout=1
+```
+
+### Get only stdout logs
+
+```bash
+curl http://localhost:8000/logs/nginx?stdout=1&stderr=0
+```
+
+### Stream only stderr logs
+
+```bash
+curl http://localhost:8000/logs/nginx?follow=1&stdout=0
+```
+
+## Development
+
+### Building
+
+```bash
+# Build the binary
+make build
+
+# Run tests
+make test
+```
+
+### Running Tests
+
+```bash
+# Run unit tests
+make test
+
+# Run integration tests
+make test-integration
+```
+
+---
+
+**Note:** This project was created as a technical assessment demonstrating Go REST API development with Docker integration.
