@@ -26,13 +26,13 @@ type DockerLogService interface {
 
 // NewServer returns a new http.Server configured with the logs API endpoints.
 // It sets up proper routing, timeouts, and integrates with the provided container logs service.
-func NewServer(ctx context.Context, dockerLogSvc DockerLogService) *http.Server {
+func NewServer(ctx context.Context, addr string, dockerLogSvc DockerLogService) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz())
 	mux.HandleFunc("GET /logs/{name}", handleLogs(dockerLogSvc))
 
 	return &http.Server{
-		Addr:              ":8080",
+		Addr:              addr,
 		Handler:           mux,
 		ReadTimeout:       defaultReadTimeout,
 		ReadHeaderTimeout: defaultReadHeaderTimeout,

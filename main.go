@@ -4,8 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/moby/moby/client"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/matthieugusmini/docker-logproxy/docker"
 	"github.com/matthieugusmini/docker-logproxy/dockerlogproxy"
@@ -27,13 +28,17 @@ const (
 func main() {
 	ctx := context.Background()
 	if err := run(ctx, os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "Application stopped: %v", err)
 		os.Exit(1)
 	}
 }
 
 func run(ctx context.Context, args []string) error {
-	var containers stringSliceFlag
+	var (
+		verbose    bool
+		port       string
+		containers stringSliceFlag
+	)
 
 	fs := flag.NewFlagSet("docker-logproxy", flag.ExitOnError)
 	fs.Var(
@@ -41,6 +46,8 @@ func run(ctx context.Context, args []string) error {
 		"containers",
 		"Comma-separated list of container names to watch (default: watch all containers)",
 	)
+	fs.BoolVar(&verbose, "v", false, "Enable debug logging (default: disabled)")
+	fs.StringVar(&port, "port", "8000", "Port on which the server should listen (default: 8000")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
@@ -49,8 +56,12 @@ func run(ctx context.Context, args []string) error {
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	lvl := slog.LevelInfo
+	if verbose {
+		lvl = slog.LevelDebug
+	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: lvl,
 	}))
 
 	storage := filesystem.NewLogStorage(defaultLogDir)
@@ -61,7 +72,7 @@ func run(ctx context.Context, args []string) error {
 	}
 	dockerClient := docker.NewClient(cli)
 
-	lc := dockerlogproxy.NewLogCollector(
+	logCollector := dockerlogproxy.NewLogCollector(
 		dockerClient,
 		storage,
 		logger,
@@ -71,33 +82,41 @@ func run(ctx context.Context, args []string) error {
 	)
 
 	logSvc := dockerlogproxy.NewDockerLogService(dockerClient, storage, logger)
-	srv := http.NewServer(ctx, logSvc)
+	addr := net.JoinHostPort("", port)
+	srv := http.NewServer(ctx, addr, logSvc)
 
-	go func() {
-		if err := lc.Run(ctx); err != nil {
-			log.Println(err)
-			// handle error
+	g, ctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		logger.Info("Start collecting logs")
+		if err := logCollector.Run(ctx); err != nil {
+			return fmt.Errorf("log collector run: %w", err)
 		}
-	}()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
+		<-ctx.Done()
+		logger.Info("Server shutting down...")
+		// The base context has already been canceled so we create a new one
+		// to shutdown the server.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("server shutdown: %w", err)
+		}
+		return nil
+	})
+
+	g.Go(func() error {
 		logger.Info("Start listening", slog.String("addr", srv.Addr))
 		if err := srv.ListenAndServe(); err != nil {
-			log.Println(err)
+			return fmt.Errorf("server stopped: %w", err)
 		}
-	}()
+		return nil
+	})
 
-	<-ctx.Done()
-	logger.Info("Server shutting down...")
-	// The base context has already been canceled so we create a new one
-	// to shutdown the server.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("Server shut down", slog.Any("error", err))
-	}
-
-	return nil
+	return g.Wait()
 }
 
 type stringSliceFlag []string
