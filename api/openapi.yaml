@@ -1,0 +1,117 @@
+openapi: 3.0.3
+info:
+  title: Docker Log Proxy API
+  description: |
+    REST API that proxies Docker container logs. The service monitors running Docker containers,
+    persists their logs to the filesystem, and exposes them via HTTP endpoints.
+
+    Logs remain accessible even after containers exit, making this ideal for log aggregation,
+    debugging, and auditing workflows.
+  version: 1.0.0
+  contact:
+    name: Matthieu Gusmini
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+paths:
+  /logs/{name}:
+    get:
+      summary: Get container logs
+      description: |
+        Retrievejlogs for a specific Docker container by name. By default, returns all stderr logs
+        from the start of the container until now. The endpoint continues to work after the container exits.
+
+        When `follow=1` is specified, the endpoint returns a log stream in real-time until the client
+        disconnects or the container exits.
+      operationId: getContainerLogs
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The name of the Docker container
+          schema:
+            type: string
+          example: nginx
+
+        - name: follow
+          in: query
+          required: false
+          description: |
+            Stream logs in real-time. When set to `1`, the endpoint returns a continuous log stream
+            until the client disconnects or the container exits.
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
+          example: 1
+
+        - name: stdout
+          in: query
+          required: false
+          description: |
+            Include stdout logs in the response. Set to `1` to include stdout logs.
+            By default, only stderr logs are returned unless this parameter is set to `1`.
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
+          example: 1
+
+        - name: stderr
+          in: query
+          required: false
+          description: |
+            Include stderr logs in the response. Set to `0` to exclude stderr logs.
+            By default, stderr logs are included unless explicitly set to `0`.
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 1
+          example: 1
+
+      responses:
+        '200':
+          description: |
+            Successfully retrieved container logs. Returns log content as plain text.
+            If both stdout and stderr are excluded (stdout=0&stderr=0 or neither enabled),
+            returns an empty response with 200 OK.
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Raw log output from the container
+              examples:
+                stderr_only:
+                  summary: Default response (stderr only)
+                  value: |
+                    2025/01/15 10:30:45 Error: connection timeout
+                    2025/01/15 10:30:46 Error: retry failed
+
+                both_streams:
+                  summary: Both stdout and stderr (with stdout=1)
+                  value: |
+                    2025/01/15 10:30:44 INFO: Server started on port 8080
+                    2025/01/15 10:30:45 Error: connection timeout
+                    2025/01/15 10:30:46 Error: retry failed
+                    2025/01/15 10:30:47 INFO: Server shutting down
+
+        '404':
+          description: |
+            Container not found. The specified container name does not exist in Docker
+            and no persisted logs were found in storage.
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Error message
+              example: "container not found: No such container: nonexistent-container"
+
+        '500':
+          description: Internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Error message
