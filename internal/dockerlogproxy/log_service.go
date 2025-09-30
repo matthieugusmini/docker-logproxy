@@ -52,6 +52,13 @@ type LogsQuery struct {
 	Follow bool
 }
 
+type StreamType string
+
+const (
+	StreamTypeStdout = "stdout"
+	StreamTypeStderr = "stderr"
+)
+
 // LogRecord represents a log entry from a Docker container.
 type LogRecord struct {
 	// Timestamp reference the time at which the logs was emitted in the container.
@@ -96,7 +103,8 @@ func (s *DockerLogService) GetContainerLogs(
 		return nil, fmt.Errorf("fetch container logs: %w", err)
 	}
 
-	// Create a new io.Reader to stream raw logs filtered based on the query.
+	// Create a new io.Reader to parse the stream of NDJSON logs
+	// and return only the raw logs filtered based on the query.
 	pr, pw := io.Pipe()
 
 	go func() {
@@ -114,8 +122,8 @@ func (s *DockerLogService) GetContainerLogs(
 				return
 			}
 
-			isIncluded := (rec.Stream == "stderr" && query.IncludeStderr) ||
-				(rec.Stream == "stdout" && query.IncludeStdout)
+			isIncluded := (rec.Stream == StreamTypeStderr && query.IncludeStderr) ||
+				(rec.Stream == StreamTypeStdout && query.IncludeStdout)
 			if isIncluded {
 				if _, err := pw.Write([]byte(rec.Log)); err != nil {
 					return

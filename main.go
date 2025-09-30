@@ -28,7 +28,7 @@ const (
 func main() {
 	ctx := context.Background()
 	if err := run(ctx, os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "Application stopped: %v", err)
+		fmt.Fprintf(os.Stderr, "Application stopped: %v\n", err)
 		os.Exit(1)
 	}
 }

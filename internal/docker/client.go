@@ -18,11 +18,6 @@ import (
 	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
 )
 
-const (
-	streamStdout = "stdout"
-	streamStderr = "stderr"
-)
-
 // Client is an adapter for the Docker Engine API client to our domain.
 type Client struct {
 	dockerClient *client.Client
@@ -136,15 +131,15 @@ func (c *Client) FetchContainerLogs(
 
 		var err error
 		if isTTY {
-			_, err = io.Copy(newNDJSONWriter(pw, streamStdout), r)
+			_, err = io.Copy(newNDJSONWriter(pw, dockerlogproxy.StreamTypeStdout), r)
 			if err != nil {
 				_ = pw.CloseWithError(err)
 				return
 			}
 		}
 
-		outW := newNDJSONWriter(pw, streamStdout)
-		errW := newNDJSONWriter(pw, streamStderr)
+		outW := newNDJSONWriter(pw, dockerlogproxy.StreamTypeStdout)
+		errW := newNDJSONWriter(pw, dockerlogproxy.StreamTypeStderr)
 		_, err = stdcopy.StdCopy(outW, errW, r)
 		// Flush remaining logs
 		_ = outW.Close()

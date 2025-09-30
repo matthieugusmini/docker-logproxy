@@ -16,8 +16,9 @@ type DockerClient interface {
 	// WatchContainersStart watches for new running container.
 	WatchContainersStart(ctx context.Context) (<-chan Container, <-chan error)
 
-	// FetchContainerLogs retrieves a stream of logs from a running container
-	// formatted in NDJSON format.
+	// FetchContainerLogs retrieves a stream of logs from a running container.
+	// The stream is represented as NDJSON with each line being a representation
+	// of a [dockerlogproxy.LogRecord].
 	// The query specifies which container and what type of logs to retrieve.
 	FetchContainerLogs(ctx context.Context, query LogsQuery) (io.ReadCloser, error)
 }
