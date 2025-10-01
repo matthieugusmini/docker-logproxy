@@ -4,61 +4,141 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Go REST API that proxies Docker container logs. The API saves container logs to the filesystem and exposes them via HTTP endpoints.
+This is a Go REST API that proxies Docker container logs. The API monitors running containers, saves their logs to the filesystem, and exposes them via HTTP endpoints. Logs remain accessible even after containers exit.
 
-## Key Requirements
+## Project Structure
 
-- **Language**: Go only (using stdlib and optionally Docker Go client)
-- **No third-party dependencies** beyond Docker client
-- **Core functionality**: Save container logs throughout their lifecycle and serve via REST API
-- **Main endpoint**: `GET /logs/<NAME>` returns container logs as plain text
-- **Query parameters**: `follow=1` for streaming, `stdout=1`/`stderr=0` for log type control
-
-## Architecture Considerations
-
-The application should be designed with extensibility in mind for future features:
-- Pluggable log storage backends (filesystem → AWS S3)
-- Container identification by ID or name
-- Additional REST endpoints
-- Authentication middleware
-- Observability (logs, metrics)
+```
+docker-logproxy/
+├── main.go                          # Application entry point
+├── internal/
+│   ├── docker/                      # Docker Engine API client wrapper
+│   ├── dockerlogproxy/              # Core business logic
+│   │   ├── log_collector.go         # Monitors containers and saves logs
+│   │   ├── log_service.go           # Retrieves logs from Docker or storage
+│   │   ├── container.go             # Container model
+│   │   └── errors.go                # Application error types
+│   ├── filesystem/                  # Filesystem-based log storage
+│   └── http/                        # HTTP server and handlers
+├── api/                             # OpenAPI specifications
+└── Makefile                         # Build and test commands
+```
 
 ## Development Commands
 
-Since this is a Go project, common development commands will be:
+The project uses a Makefile for common operations:
 
 ```bash
-# Initialize Go module
-go mod init docker-logproxy
+# Build the binary
+make build
 
 # Run the application
-go run main.go
+make run
 
-# Build the application
-go build -o docker-logproxy
+# Run unit tests
+make test-unit
 
-# Run tests
-go test ./...
+# Run end-to-end tests (requires Docker)
+make test-e2e
 
-# Format code
-go fmt ./...
+# Clean build artifacts
+make clean
 
-# Vet code for issues
-go vet ./...
+# Show all available commands
+make help
 ```
 
-## Key Implementation Areas
+**Code Quality:**
 
-1. **Docker Integration**: Connect to Docker engine to monitor containers
-2. **Log Storage**: Filesystem-based log persistence with proper file handling
-3. **HTTP Server**: REST API with proper error handling and content types
-4. **Streaming**: WebSocket or HTTP streaming for `follow=1` parameter
-5. **Resource Management**: Proper cleanup of goroutines and file handles
-6. **Graceful Shutdown**: Handle SIGTERM/SIGINT signals properly
+```bash
+# Format and lint code (preferred method)
+golangci-lint run --fix
 
-## Error Handling Requirements
+# Format only
+golangci-lint fmt
 
-- Return 404 for non-existent containers
-- Handle Docker engine disconnections
-- Manage filesystem errors appropriately
-- Graceful degradation when containers exit
+# Run linter without auto-fix
+golangci-lint run
+```
+
+## Architecture
+
+The application consists of three main components:
+
+1. **Log Collector** (`dockerlogproxy.LogCollector`)
+   - Discovers running containers on startup
+   - Watches for new containers
+   - Streams logs from Docker Engine to filesystem storage
+   - Runs as a background goroutine per container
+
+2. **Log Service** (`dockerlogproxy.DockerLogService`)
+   - Retrieves logs from running containers (via Docker API)
+   - Falls back to filesystem storage for stopped containers
+   - Filters stdout/stderr based on query parameters
+
+3. **HTTP Server** (`http.Server`)
+   - Exposes REST API endpoints
+   - Handles graceful shutdown
+   - Health check endpoint at `/healthz`
+
+**Data Flow:**
+- Log Collector → Docker Engine → Filesystem Storage
+- HTTP Client → REST API → Docker Engine (running) or Storage (stopped)
+
+## API Endpoints
+
+### `GET /logs/{name}`
+
+Retrieves logs for a container by name.
+
+**Query Parameters:**
+- `stdout` - Include stdout logs (`0` or `1`, default: `0`)
+- `stderr` - Include stderr logs (`0` or `1`, default: `1`)
+- `follow` - Stream logs in real-time (`0` or `1`, default: `0`) *(TODO: not yet implemented)*
+
+**Responses:**
+- `200 OK` - Returns logs as `text/plain`
+- `404 Not Found` - Container not found in Docker or storage
+
+### `GET /healthz`
+
+Health check endpoint for monitoring.
+
+**Response:**
+- `200 OK` - Service is healthy
+
+## Command-Line Flags
+
+- `--port` - HTTP server port (default: `8000`)
+- `--log-dir` - Directory for stored logs (default: `logs`)
+- `--containers` - Comma-separated list of container names to watch (default: all containers)
+- `-v` - Enable debug logging (default: disabled)
+
+## Testing Strategy
+
+The project uses two levels of testing:
+
+1. **Unit Tests** (`*_test.go`)
+   - Test business logic in isolation using test doubles
+   - Example: `internal/dockerlogproxy/log_service_test.go`
+   - Run with: `make test-unit`
+
+2. **End-to-End Tests** (`main_test.go`, `//go:build e2e`)
+   - Test the complete application with real Docker containers
+   - Preferred for this type of integration-heavy project
+   - Run with: `make test-e2e`
+
+## Key Design Decisions
+
+1. **Extensible Storage** - `LogStorage` interface allows pluggable backends (currently filesystem, future: S3, GCS)
+2. **Interface-based Design** - `DockerClient` and `LogStorage` interfaces enable testing with fakes/mocks
+3. **Graceful Shutdown** - Uses `signal.NotifyContext` and `errgroup` for proper cleanup
+4. **Stream Format** - Logs stored as NDJSON with `LogRecord` entries containing timestamp, stream type, and content
+5. **Non-root User** - Dockerfile uses distroless nonroot image for security
+
+## Error Handling
+
+- Custom error types in `dockerlogproxy.Error` with error codes
+- `ErrorCodeContainerNotFound` - Container doesn't exist in Docker or storage
+- HTTP handlers translate application errors to appropriate status codes
+- Filesystem errors handled gracefully with fallback behavior
