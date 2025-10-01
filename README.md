@@ -180,6 +180,15 @@ Test the complete application with real Docker containers.
 make test-e2e
 ```
 
+## Why No Dockerfile?
+
+This application monitors Docker containers on the host system and must run directly on the host. Running Docker inside a container (Docker-in-Docker) creates a separate daemon that can't see host containers.
+
+> [!CAUTION]
+> While mounting the Docker socket with `-v /var/run/docker.sock:/var/run/docker.sock` makes containerization technically possible, it grants root-equivalent host access.<sup>[1](#ref1)</sup> If you're comfortable with that risk, running the binary directly on the host is simpler and has a clearer security model.
+
+<a name="ref1">1</a>: [Socket mounting implications](https://stackoverflow.com/questions/27879713/is-it-ok-to-run-docker-from-inside-docker)
+
 ---
 
 **Note:** This project was created as a technical assessment demonstrating Go REST API development.
