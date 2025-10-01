@@ -24,7 +24,7 @@ import (
 
 func TestDockerLogService_GetContainerLogs(t *testing.T) {
 	testTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 
 	logs := []dockerlogproxy.LogRecord{
 		{Timestamp: testTime, Stream: "stdout", Log: "stdout line 1\n"},
@@ -218,7 +218,9 @@ func (f *fakeDockerClient) FetchContainerLogs(
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	for _, rec := range logs {
-		_ = enc.Encode(rec)
+		if err := enc.Encode(rec); err != nil {
+			return nil, err
+		}
 	}
 	return io.NopCloser(&buf), nil
 }
@@ -240,7 +242,9 @@ func (f *fakeLogStorage) Open(containerName string) (io.ReadCloser, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	for _, rec := range logs {
-		_ = enc.Encode(rec)
+		if err := enc.Encode(rec); err != nil {
+			return nil, err
+		}
 	}
 	return io.NopCloser(&buf), nil
 }
