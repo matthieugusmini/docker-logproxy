@@ -178,12 +178,12 @@ func (c *Client) isTTY(ctx context.Context, containerName string) (bool, error) 
 }
 
 type ndjsonWriter struct {
-	stream  string
+	stream  dockerlogproxy.StreamType
 	encoder *json.Encoder
 	buf     bytes.Buffer
 }
 
-func newNDJSONWriter(w io.Writer, stream string) *ndjsonWriter {
+func newNDJSONWriter(w io.Writer, stream dockerlogproxy.StreamType) *ndjsonWriter {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	return &ndjsonWriter{

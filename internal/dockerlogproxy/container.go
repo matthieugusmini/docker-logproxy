@@ -1,13 +1,13 @@
 package dockerlogproxy
 
-// Container represents informations about a Docker container.
+// Container represents information about a Docker container.
 type Container struct {
-	// ID is the container unique identifier.
+	// ID is the container's unique identifier.
 	ID string
 
-	// Name is the container canonical name.
+	// Name is the container's canonical name.
 	Name string
 
-	// TTY indicates whether the container has a pseudo-TTY allocated or not.
+	// TTY indicates whether the container has a pseudo-TTY allocated.
 	TTY bool
 }

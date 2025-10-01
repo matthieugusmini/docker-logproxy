@@ -9,6 +9,7 @@ import (
 	"sync"
 )
 
+// DockerClient provides access to Docker container operations
 type DockerClient interface {
 	// ListContainers returns a slice representing all running containers in Docker.
 	ListContainers(ctx context.Context) ([]Container, error)

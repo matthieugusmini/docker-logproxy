@@ -15,12 +15,11 @@ var (
 	defaultReadHeaderTimeout = 5 * time.Second
 )
 
-// DockerLogService defines the interface for retrieving Docker container logs.
+// DockerLogService defines the interface for retrieving container logs.
 type DockerLogService interface {
-	// GetContainerLogs returns a logs stream of the queried container filtered
-	// based on the query parameters.
+	// GetContainerLogs returns a filtered log stream for the specified container.
 	//
-	// If the container doesn't exist, it returns a *[dockerlogproxy.Error] with the code "CONTAINER_NOT_FOUND".
+	// Returns *dockerlogproxy.Error with code CONTAINER_NOT_FOUND if the container doesn't exist.
 	GetContainerLogs(ctx context.Context, query dockerlogproxy.LogsQuery) (io.ReadCloser, error)
 }
 
