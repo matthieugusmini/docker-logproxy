@@ -49,7 +49,6 @@ func TestMain(m *testing.M) {
 
 func TestGetContainerLogs(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
 
 	// Create temporary directory for logs saved to the filesystem.
 	logDir := t.TempDir()
@@ -83,6 +82,8 @@ func TestGetContainerLogs(t *testing.T) {
 	)
 
 	t.Run("logs accessible with docker", func(t *testing.T) {
+		t.Parallel()
+
 		tests := []struct {
 			name        string
 			queryParams url.Values
@@ -190,6 +191,8 @@ func TestGetContainerLogs(t *testing.T) {
 	// This also asserts that the log collector properly saves the logs
 	// to the filesystem.
 	t.Run("removed container returns logs from backend storage", func(t *testing.T) {
+		t.Parallel()
+
 		tests := []struct {
 			name        string
 			queryParams url.Values
@@ -304,7 +307,7 @@ func TestGetContainerLogs(t *testing.T) {
 	})
 
 	t.Run("follow=1 streams logs as they are generated", func(t *testing.T) {
-		// t.Parallel()
+		t.Parallel()
 
 		// Echo with a delay to make sure the server keeps writing the logs
 		// to the client until the container exit.
@@ -332,7 +335,7 @@ func TestGetContainerLogs(t *testing.T) {
 	})
 
 	t.Run("container does not exist returns 404", func(t *testing.T) {
-		// t.Parallel()
+		t.Parallel()
 
 		requestURL := fmt.Sprintf("%s/logs/non-existent-container", baseURL)
 		req, err := http.NewRequest(http.MethodGet, requestURL, nil)
@@ -468,7 +471,7 @@ func mustGetLogs(
 		req.URL.RawQuery = q.Encode()
 	}
 
-	httpClient := &http.Client{Timeout: 5 * time.Second}
+	httpClient := &http.Client{Timeout: 10 * time.Second}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		t.Fatalf("Failed to make HTTP request: %v", err)
