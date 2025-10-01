@@ -39,7 +39,7 @@ func handleLogs(dockerLogSvc DockerLogService) http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			http.Error(w, err.Error(), http.StatusNotFound)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		defer logs.Close()

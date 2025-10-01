@@ -34,3 +34,6 @@ go.work.sum
 # Logs
 logs
 *.log
+
+# Binary
+docker-logproxy

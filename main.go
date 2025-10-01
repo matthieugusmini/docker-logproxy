@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -18,7 +20,7 @@ import (
 	"github.com/matthieugusmini/docker-logproxy/internal/docker"
 	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
 	"github.com/matthieugusmini/docker-logproxy/internal/filesystem"
-	"github.com/matthieugusmini/docker-logproxy/internal/http"
+	customhttp "github.com/matthieugusmini/docker-logproxy/internal/http"
 )
 
 const (
@@ -27,9 +29,11 @@ const (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
 	if err := run(ctx, os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "Application stopped: %v\n", err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
@@ -41,7 +45,6 @@ func run(ctx context.Context, args []string) error {
 		logDir     string
 		containers stringSliceFlag
 	)
-
 	fs := flag.NewFlagSet("docker-logproxy", flag.ExitOnError)
 	fs.Var(
 		&containers,
@@ -53,7 +56,7 @@ func run(ctx context.Context, args []string) error {
 		&port,
 		"port",
 		defaultPort,
-		"Port on which the server should listen (default: 8000",
+		"Port on which the server should listen (default: 8000)",
 	)
 	fs.StringVar(
 		&logDir,
@@ -65,9 +68,6 @@ func run(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
-
-	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	lvl := slog.LevelInfo
 	if verbose {
@@ -99,13 +99,13 @@ func run(ctx context.Context, args []string) error {
 
 	logSvc := dockerlogproxy.NewDockerLogService(dockerClient, storage, logger)
 	addr := net.JoinHostPort("", port)
-	srv := http.NewServer(ctx, addr, logSvc)
+	srv := customhttp.NewServer(ctx, addr, logSvc)
 
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		logger.Info("Start collecting logs")
-		if err := logCollector.Run(ctx); err != nil {
+		if err := logCollector.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			return fmt.Errorf("log collector run: %w", err)
 		}
 		return nil
@@ -126,7 +126,7 @@ func run(ctx context.Context, args []string) error {
 
 	g.Go(func() error {
 		logger.Info("Start listening", slog.String("addr", srv.Addr))
-		if err := srv.ListenAndServe(); err != nil {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("server stopped: %w", err)
 		}
 		return nil

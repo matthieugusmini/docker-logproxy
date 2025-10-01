@@ -28,7 +28,7 @@ func NewClient(dockerClient *client.Client) *Client {
 	return &Client{dockerClient}
 }
 
-// ListContainers fetches the list of running containers.
+// ListContainers fetches the list of all containers in Docker (docker ps -a).
 func (c *Client) ListContainers(ctx context.Context) ([]dockerlogproxy.Container, error) {
 	containers, err := c.dockerClient.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
@@ -146,8 +146,8 @@ func (c *Client) FetchContainerLogs(
 			_, err = io.Copy(newNDJSONWriter(pw, dockerlogproxy.StreamTypeStdout), r)
 			if err != nil {
 				_ = pw.CloseWithError(err)
-				return
 			}
+			return
 		}
 
 		outW := newNDJSONWriter(pw, dockerlogproxy.StreamTypeStdout)

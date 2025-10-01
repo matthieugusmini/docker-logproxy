@@ -75,6 +75,8 @@ func NewLogCollector(
 func (lc *LogCollector) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer func() {
+		lc.logger.Info("Log collector shutting down...")
+
 		cancel()
 		lc.wg.Wait()
 	}()
