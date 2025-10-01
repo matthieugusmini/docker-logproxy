@@ -18,12 +18,13 @@ Docker Log Proxy monitors running Docker containers, captures their logs to the 
 ## Architecture
 
 ```mermaid
-flowchart TD
-    A@{ shape: rect, label: "Log Collector" }-. Write logs .->B@{ shape: lin-cyl, label: "FS" }
-    A-. Fetch logs .->C@{ shape: rect, label: "Docker Engine" }
-    E@{ shape: rect, label: "HTTP Client"}-. GET /logs/{name} .->D
-    D@{ shape: rect, label: "REST API" }-. Read logs (fallback) .->B@{ shape: lin-cyl, label: "FS" }
-    D-. Fetch logs (filtered) .->C
+flowchart LR
+    Client[HTTP Client] -->|GET /logs/&#123name&#125| API[REST API]
+    API -->|fetch live| Docker[Docker Engine]
+    API -.->|fallback| Storage[(Filesystem)]
+
+    Collector[Log Collector] -->|fetch live| Docker
+    Collector -->|persist| Storage
 ```
 
 ## Project Structure
@@ -129,7 +130,7 @@ The server will:
 ### API Endpoints
 
 > [!TIP]
-> Full API documentation is available in the OpenAPI specification at [`/api/openapi.yaml`](api/openapi.yaml). You can visualize and interact with the API using [Swagger Editor](https://editor.swagger.io/).**
+> Full API documentation is available in the OpenAPI specification at [`/api/openapi.yaml`](api/openapi.yaml). You can visualize and interact with the API using [Swagger Editor](https://editor.swagger.io/).
 
 #### `GET /logs/{name}`
 
