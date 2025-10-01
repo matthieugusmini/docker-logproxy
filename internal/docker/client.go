@@ -43,7 +43,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]dockerlogproxy.Container
 			return nil, fmt.Errorf("inspect Docker container %s: %w", ctr.ID, err)
 		}
 
-		// Because of historical reasons container names are stored as path.
+		// For historical reasons, container names are stored as paths.
 		containerName := strings.TrimPrefix(ctrInfo.Name, "/")
 
 		res[i] = dockerlogproxy.Container{
@@ -56,13 +56,15 @@ func (c *Client) ListContainers(ctx context.Context) ([]dockerlogproxy.Container
 	return res, nil
 }
 
+// WatchContainersStart returns a stream of events the caller can consume
+// to be notified when a new running container is detected.
 func (c *Client) WatchContainersStart(
 	ctx context.Context,
 ) (<-chan dockerlogproxy.Container, <-chan error) {
-	ctrStartEvents := make(chan dockerlogproxy.Container, 1)
+	out := make(chan dockerlogproxy.Container, 1)
 
-	// We only care about container start events as we just want to add new
-	// log streamer whenever a container starts.
+	// We only care about container start events since we need to add a new
+	// log streamer each time a container starts.
 	filters := filters.NewArgs(
 		filters.Arg("type", string(events.ContainerEventType)),
 		filters.Arg("event", "start"),
@@ -72,24 +74,34 @@ func (c *Client) WatchContainersStart(
 	})
 
 	go func() {
+		defer close(out)
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case ev := <-eventsCh:
-				switch ev.Action {
-				case events.ActionStart:
-					ctrStartEvents <- dockerlogproxy.Container{
-						ID:   ev.Actor.ID,
-						Name: ev.Actor.Attributes["name"],
-						TTY:  false,
+			case ev, ok := <-eventsCh:
+				if !ok {
+					return
+				}
+
+				var tty bool
+				if info, err := c.dockerClient.ContainerInspect(ctx, ev.Actor.ID); err == nil {
+					if info.Config != nil {
+						tty = info.Config.Tty
 					}
+				}
+
+				out <- dockerlogproxy.Container{
+					ID:   ev.Actor.ID,
+					Name: ev.Actor.Attributes["name"],
+					TTY:  tty,
 				}
 			}
 		}
 	}()
 
-	return ctrStartEvents, errs
+	return out, errs
 }
 
 // FetchContainerLogs returns a filtered stream of logs from the specified Docker container.
@@ -114,7 +126,7 @@ func (c *Client) FetchContainerLogs(
 		return nil, fmt.Errorf("get Docker container logs: %w", err)
 	}
 
-	// If it is a TTY container the log stream doesn't need to be demux.
+	// If it is a TTY container, the log stream doesn't need to be demultiplexed.
 	isTTY, err := c.isTTY(ctx, query.ContainerName)
 	if err != nil {
 		return nil, fmt.Errorf("check if tty container: %w", err)
@@ -122,9 +134,9 @@ func (c *Client) FetchContainerLogs(
 
 	pr, pw := io.Pipe()
 
-	// The log stream returned by the API can be in different format depending on
+	// The log stream returned by the API can be in different formats depending on
 	// whether the container is a TTY container or not. We standardize the
-	// output for easier manipulation downstream.
+	// output for easier downstream manipulation.
 	go func() {
 		defer r.Close()
 		defer pw.Close()
@@ -141,7 +153,7 @@ func (c *Client) FetchContainerLogs(
 		outW := newNDJSONWriter(pw, dockerlogproxy.StreamTypeStdout)
 		errW := newNDJSONWriter(pw, dockerlogproxy.StreamTypeStderr)
 		_, err = stdcopy.StdCopy(outW, errW, r)
-		// Flush remaining logs
+		// Flush any remaining logs
 		_ = outW.Close()
 		_ = errW.Close()
 		if err != nil {
@@ -156,6 +168,10 @@ func (c *Client) isTTY(ctx context.Context, containerName string) (bool, error) 
 	containerInfo, err := c.dockerClient.ContainerInspect(ctx, containerName)
 	if err != nil {
 		return false, fmt.Errorf("inspect Docker container: %w", err)
+	}
+
+	if containerInfo.Config == nil {
+		return false, fmt.Errorf("container %s has no config", containerName)
 	}
 
 	return containerInfo.Config.Tty, nil
@@ -185,7 +201,7 @@ func (w *ndjsonWriter) Write(p []byte) (int, error) {
 	for {
 		data := w.buf.Bytes()
 		nlIdx := bytes.IndexByte(data, '\n')
-		// Wait for more writes to complete a line.
+		// Wait for more writes to complete the line.
 		if nlIdx == -1 {
 			break
 		}
@@ -211,7 +227,7 @@ func (w *ndjsonWriter) emit(line []byte) error {
 		tok := string(line[:sepIdx])
 
 		if ts, err = time.Parse(time.RFC3339Nano, tok); err == nil { // NO ERROR
-			// strip timestamp prefix + separator
+			// Strip timestamp prefix and separator.
 			line = line[sepIdx+1:]
 		}
 	}
