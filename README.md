@@ -8,12 +8,12 @@ Docker Log Proxy monitors running Docker containers, captures their logs to the 
 
 ## Features
 
-- 🔍 **Automatic Discovery** - Monitors all running containers or specific containers by name
-- 💾 **Persistent Storage** - Logs saved to filesystem and accessible after container termination
-- 🌊 **Real-time Streaming** - Stream logs as they're generated with `follow` parameter
-- 🎯 **Selective Output** - Filter stdout/stderr independently
-- 🚀 **Zero Configuration** - Works out of the box with sensible defaults
-- 🏗️ **Extensible Design** - Modular architecture for pluggable storage backends
+- **Automatic Discovery** - Monitors all running containers or specific containers by name
+- **Persistent Storage** - Logs saved to filesystem and accessible after container termination
+- **Real-time Streaming** - Stream logs as they're generated with `follow` parameter
+- **Selective Output** - Filter stdout/stderr independently
+- **Zero Configuration** - Works out of the box with sensible defaults
+- **Extensible Design** - Modular architecture for pluggable storage backends
 
 ## Architecture
 
@@ -30,8 +30,7 @@ flowchart TD
 
 ```bash
 # Build and run the proxy
-make build
-./docker-logproxy
+make build && ./docker-logproxy
 
 # In another terminal, start a container
 docker run --name test-container alpine echo "Hello World"
@@ -111,12 +110,15 @@ The server will:
 
 ### API Endpoints
 
+> [!TIP]
+> Full API documentation is available in the OpenAPI specification at [`/api/openapi.yaml`](api/openapi.yaml). You can visualize and interact with the API using [Swagger Editor](https://editor.swagger.io/).**
+
 #### `GET /logs/{name}`
 
 Retrieve logs for a specific container.
 
 **Path Parameters:**
-- `name` (required) - Container name
+- `name` (required) - Container name or ID
 
 **Query Parameters:**
 - `follow` - Stream logs in real-time (`0` or `1`, default: `0`)
@@ -126,17 +128,7 @@ Retrieve logs for a specific container.
 **Response:**
 - `200 OK` - Returns logs as `text/plain`
 - `404 Not Found` - Container not found
-
-### Log Storage
-
-Logs are stored in the `./logs` directory by default (configurable via `-log-dir` flag), organized by container name:
-
-```
-logs/
-├── nginx.log
-├── redis.log
-└── app-container.log
-```
+- `500 Internal Server Error` - Server error
 
 ## Examples
 
@@ -170,28 +162,24 @@ curl http://localhost:8000/logs/nginx?stdout=1&stderr=0
 curl http://localhost:8000/logs/nginx?follow=1&stdout=0
 ```
 
-## Development
+## Testing
 
-### Building
+### Unit Tests
+
+To test the business logic in isolation using test doubles.
 
 ```bash
-# Build the binary
-make build
-
-# Run tests
-make test
+make test-unit
 ```
 
-### Running Tests
+### End-to-End Tests
+
+Test the complete application with real Docker containers.
 
 ```bash
-# Run unit tests
-make test-unit
-
-# Run e2e tests
 make test-e2e
 ```
 
 ---
 
-**Note:** This project was created as a technical assessment demonstrating Go REST API development with Docker integration.
+**Note:** This project was created as a technical assessment demonstrating Go REST API development.

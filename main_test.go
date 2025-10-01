@@ -264,6 +264,8 @@ func TestGetContainerLogs(t *testing.T) {
 					tc.tty,
 				)
 
+				// Remove the container so it is not accessible through Docker anymore,
+				// so the API will use its backend storage instead.
 				if err := dockerClient.ContainerStop(t.Context(), containerName, client.ContainerStopOptions{}); err != nil {
 					t.Fatalf("Failed to stop container: %v", err)
 				}

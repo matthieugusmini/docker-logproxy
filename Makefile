@@ -21,15 +21,15 @@ clean:
 	@rm $(BINARY_NAME)
 	@rm -rf $(LOG_DIR)
 
-.PHONY: test
-## test: Run tests
+.PHONY: test-unit
+## test-unit: Run unit tests
 test-unit:
 	go test -v -race ./...
 
 .PHONY: test-e2e
 ## test-e2e: Run end-to-end tests
 test-e2e:
-	go test -v -race -parallel=4 -tags=e2e ./...
+	go test -v -race -tags=e2e
 
 .PHONY: help
 ## help: Display this help message

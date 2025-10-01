@@ -49,7 +49,12 @@ func run(ctx context.Context, args []string) error {
 	)
 	fs.BoolVar(&verbose, "v", false, "Enable debug logging (default: disabled)")
 	fs.StringVar(&port, "port", "8000", "Port on which the server should listen (default: 8000")
-	fs.StringVar(&logDir, "log-dir", defaultLogDir, "Directory where container logs are stored (default: logs)")
+	fs.StringVar(
+		&logDir,
+		"log-dir",
+		defaultLogDir,
+		"Directory where container logs are stored (default: logs)",
+	)
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
