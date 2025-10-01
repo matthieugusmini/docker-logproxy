@@ -304,6 +304,8 @@ func TestGetContainerLogs(t *testing.T) {
 	})
 
 	t.Run("follow=1 streams logs as they are generated", func(t *testing.T) {
+		// t.Parallel()
+
 		// Echo with a delay to make sure the server keeps writing the logs
 		// to the client until the container exit.
 		cmd := "for i in 1 2 3 4; do echo \"log-$i\"; sleep 1; done"
@@ -330,6 +332,8 @@ func TestGetContainerLogs(t *testing.T) {
 	})
 
 	t.Run("container does not exist returns 404", func(t *testing.T) {
+		// t.Parallel()
+
 		requestURL := fmt.Sprintf("%s/logs/non-existent-container", baseURL)
 		req, err := http.NewRequest(http.MethodGet, requestURL, nil)
 		if err != nil {

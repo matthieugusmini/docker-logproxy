@@ -6,19 +6,21 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
 )
 
 // LogStorage provides filesystem-based storage for Docker container logs.
-// It stores logs as individual files named by container name, along with
-// metadata files named by container ID, all within a specified root directory.
 type LogStorage struct {
-	root string
+	root              string
+	containerIDByName sync.Map
 }
 
 // NewLogStorage creates a new LogStorage instance that stores log files
 // in the specified root directory.
+//
+// You can call LoadExistingMappings() after creation to rebuild the name->ID mapping from old containers.
 func NewLogStorage(root string) *LogStorage {
 	return &LogStorage{
 		root: root,
@@ -26,68 +28,135 @@ func NewLogStorage(root string) *LogStorage {
 }
 
 // Create creates a new log file for the specified container and returns
-// a WriteCloser for writing log data. It creates the root directory if it
-// does not exist, writes a metadata file named "<containerID>.meta.json"
-// containing the container information, and creates a log file named
-// "<containerName>.log" for storing the actual log output.
+// an [io.WriteCloser] for writing log data.
+//
+// It creates a container-specific directory at "[logDir]/[containerID]/"
+// if it does not exist already, writes container metadata to "metadata.json",
+// and creates a log file "[containerID]-json.log".
 func (ls *LogStorage) Create(container dockerlogproxy.Container) (io.WriteCloser, error) {
-	err := os.MkdirAll(ls.root, os.ModePerm)
-	if err != nil {
-		return nil, fmt.Errorf("make root log directory: %w", err)
+	containerDir := ls.containerDirPath(container.ID)
+	if err := os.MkdirAll(containerDir, os.ModePerm); err != nil {
+		return nil, fmt.Errorf("make container directory: %w", err)
 	}
 
-	metadataPath := filepath.Join(ls.root, container.ID+".meta.json")
+	// We use this metadata to resolve container name using the container id.
+	metadataPath := ls.metadataFilePath(container.ID)
 	metadataFile, err := os.Create(metadataPath)
 	if err != nil {
-		return nil, fmt.Errorf("create meta info file: %w", err)
+		return nil, fmt.Errorf("create metadata file: %w", err)
 	}
+	defer metadataFile.Close()
 
 	if err := json.NewEncoder(metadataFile).Encode(container); err != nil {
 		return nil, fmt.Errorf("encode container metadata: %w", err)
 	}
 
-	logPath := filepath.Join(ls.root, container.Name+".log")
-	return os.Create(logPath)
-}
+	// Keep an in-memory mapping for faster lookup.
+	ls.containerIDByName.Store(container.Name, container.ID)
 
-// Open opens the log file for the specified container and returns a ReadCloser
-// for reading log data. The containerNameOrID parameter accepts either a
-// container name or ID. If a log file matching the input directly exists, it is
-// returned. Otherwise, Open attempts to resolve the container ID to a name by
-// reading the metadata file, then opens the log file by name. It returns a
-// [dockerlogproxy.Error] with [dockerlogproxy.ErrorCodeContainerNotFound] if the metadata or log
-// file does not exist.
-func (ls *LogStorage) Open(containerNameOrID string) (io.ReadCloser, error) {
-	path := filepath.Join(ls.root, containerNameOrID+".log")
-	if f, err := os.Open(path); err == nil { // NO ERROR
-		return f, nil
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
-
-	// Consider containerNameOrID as an ID and try to resolver the container name.
-	metadataPath := filepath.Join(ls.root, containerNameOrID+".meta.json")
-	f, err := os.Open(metadataPath)
-	if os.IsNotExist(err) {
-		return nil, &dockerlogproxy.Error{
-			Code:    dockerlogproxy.ErrorCodeContainerNotFound,
-			Message: fmt.Sprintf("metadata file not found: %v", err),
-		}
-	}
-
-	var metadata dockerlogproxy.Container
-	if err := json.NewDecoder(f).Decode(&metadata); err != nil {
-		return nil, err
-	}
-
-	logPath := filepath.Join(ls.root, metadata.Name+".log")
-	logFile, err := os.Open(logPath)
-	if os.IsNotExist(err) {
-		return nil, &dockerlogproxy.Error{
-			Code:    dockerlogproxy.ErrorCodeContainerNotFound,
-			Message: fmt.Sprintf("log file not found: %v", err),
-		}
+	logPath := ls.logFilePath(container.ID)
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return nil, fmt.Errorf("create log file: %w", err)
 	}
 
 	return logFile, nil
+}
+
+// Open opens the log file for the specified container and returns
+// an [io.ReadCloser] for reading log data. The containerNameOrID
+// parameter accepts either a container name or ID.
+//
+// Returns [dockerlogproxy.Error] with code [dockerlogproxy.ErrorCodeContainerNotFound] if the container cannot be found.
+func (ls *LogStorage) Open(containerNameOrID string) (io.ReadCloser, error) {
+	// 1. Consider containerNameOrID is a container ID and try to directly
+	// open the log file.
+	logPath := ls.logFilePath(containerNameOrID)
+	if f, err := os.Open(logPath); err == nil {
+		return f, nil
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("open log file: %w", err)
+	}
+
+	// 2. Now assume it's a container name and try resolving to ID
+	// via in-memory mapping.
+	v, found := ls.containerIDByName.Load(containerNameOrID)
+	if !found {
+		return nil, &dockerlogproxy.Error{
+			Code:    dockerlogproxy.ErrorCodeContainerNotFound,
+			Message: fmt.Sprintf("container not found: %s", containerNameOrID),
+		}
+	}
+	containerID := v.(string)
+
+	logPath = ls.logFilePath(containerID)
+	f, err := os.Open(logPath)
+	if os.IsNotExist(err) {
+		return nil, &dockerlogproxy.Error{
+			Code: dockerlogproxy.ErrorCodeContainerNotFound,
+			Message: fmt.Sprintf(
+				"log file not found for container %s (ID: %s)",
+				containerNameOrID,
+				containerID,
+			),
+		}
+	} else if err != nil {
+		return nil, fmt.Errorf("open log file: %w", err)
+	}
+
+	return f, nil
+}
+
+// LoadExistingMappings scans the logs root directory for existing
+// container logs and rebuilds the in-memory name→ID mapping from
+// metadata files.
+//
+// This should be called during initialization to restore the mapping after a restart.
+func (ls *LogStorage) LoadExistingMappings() error {
+	entries, err := os.ReadDir(ls.root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Root directory doesn't exist yet. This is fine on first run.
+			return nil
+		}
+		return fmt.Errorf("read log directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		containerID := entry.Name()
+		metadataPath := ls.metadataFilePath(containerID)
+		f, err := os.Open(metadataPath)
+		if err != nil {
+			// Corrupted container log directory
+			continue
+		}
+
+		var container dockerlogproxy.Container
+		if err := json.NewDecoder(f).Decode(&container); err != nil {
+			f.Close()
+			// Corrupted container log directory
+			continue
+		}
+		f.Close()
+
+		ls.containerIDByName.Store(container.Name, container.ID)
+	}
+
+	return nil
+}
+
+func (ls *LogStorage) containerDirPath(containerID string) string {
+	return filepath.Join(ls.root, containerID)
+}
+
+func (ls *LogStorage) metadataFilePath(containerID string) string {
+	return filepath.Join(ls.containerDirPath(containerID), "metadata.json")
+}
+
+func (ls *LogStorage) logFilePath(containerID string) string {
+	return filepath.Join(ls.containerDirPath(containerID), containerID+"-json.log")
 }

@@ -78,6 +78,9 @@ func run(ctx context.Context, args []string) error {
 	}))
 
 	storage := filesystem.NewLogStorage(logDir)
+	if err := storage.LoadExistingMappings(); err != nil {
+		return fmt.Errorf("load existing log mappings: %w", err)
+	}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
