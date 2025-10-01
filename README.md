@@ -26,6 +26,24 @@ flowchart TD
     D-. Fetch logs (filtered) .->C
 ```
 
+## Project Structure
+
+```
+docker-logproxy/
+├── main.go                          # Application entry point
+├── internal/
+│   ├── docker/                      # Docker Engine API client wrapper
+│   ├── dockerlogproxy/              # Core business logic
+│   │   ├── log_collector.go         # Monitors containers and saves logs
+│   │   ├── log_service.go           # Retrieves logs from Docker or storage
+│   │   ├── container.go             # Container model
+│   │   └── errors.go                # Application error types
+│   ├── filesystem/                  # Filesystem-based log storage
+│   └── http/                        # HTTP server and handlers
+├── api/                             # OpenAPI specifications
+└── Makefile                         # Build and test commands
+```
+
 ## Quick Start
 
 ```bash
