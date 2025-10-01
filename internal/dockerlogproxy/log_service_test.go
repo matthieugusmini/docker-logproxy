@@ -1,10 +1,11 @@
-// NOTE: This unit test is here to showcase proper separation of concerns
-// that let us write test solely focused on the business logic, swapping
-// dependencies with test doubles.
+// NOTE: This unit test demonstrates proper separation of concerns, allowing tests
+// to focus solely on business logic by using test doubles for dependencies.
 //
-// I personally think testing each layer of the architecture like this,
-// can be redundant as they're mostly all already tested by the integration
-// tests (main_test.go).
+// I generally prefer e2e testing for this type of project, as it provides more
+// confidence based on experience. Testing each architectural layer separately can
+// be redundant since e2e tests (main_test.go) already cover most scenarios, while
+// adding significant maintenance overhead. I typically write unit tests only when
+// e2e test setup becomes too complex and I want to test a specific part of the system.
 package dockerlogproxy_test
 
 import (
@@ -190,6 +191,16 @@ func TestDockerLogService_GetContainerLogs(t *testing.T) {
 
 type fakeDockerClient struct {
 	containers map[string][]dockerlogproxy.LogRecord
+}
+
+func (f *fakeDockerClient) ListContainers(ctx context.Context) ([]dockerlogproxy.Container, error) {
+	return nil, nil
+}
+
+func (f *fakeDockerClient) WatchContainersStart(
+	ctx context.Context,
+) (<-chan dockerlogproxy.Container, <-chan error) {
+	return nil, nil
 }
 
 func (f *fakeDockerClient) FetchContainerLogs(

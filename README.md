@@ -186,10 +186,10 @@ make test
 
 ```bash
 # Run unit tests
-make test
+make test-unit
 
-# Run integration tests
-make test-integration
+# Run e2e tests
+make test-e2e
 ```
 
 ---

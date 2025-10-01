@@ -23,13 +23,13 @@ clean:
 
 .PHONY: test
 ## test: Run tests
-test:
+test-unit:
 	go test -v -race ./...
 
-.PHONY: test-integration
-## test-integration: Run integration tests
-test-integration:
-	go test -v -race -tags=integration ./...
+.PHONY: test-e2e
+## test-e2e: Run end-to-end tests
+test-e2e:
+	go test -v -race -parallel=4 -tags=e2e ./...
 
 .PHONY: help
 ## help: Display this help message
