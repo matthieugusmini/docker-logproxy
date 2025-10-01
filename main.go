@@ -23,6 +23,7 @@ import (
 
 const (
 	defaultLogDir = "logs"
+	defaultPort   = "8000"
 )
 
 func main() {
@@ -48,7 +49,12 @@ func run(ctx context.Context, args []string) error {
 		"Comma-separated list of container names to watch (default: watch all containers)",
 	)
 	fs.BoolVar(&verbose, "v", false, "Enable debug logging (default: disabled)")
-	fs.StringVar(&port, "port", "8000", "Port on which the server should listen (default: 8000")
+	fs.StringVar(
+		&port,
+		"port",
+		defaultPort,
+		"Port on which the server should listen (default: 8000",
+	)
 	fs.StringVar(
 		&logDir,
 		"log-dir",

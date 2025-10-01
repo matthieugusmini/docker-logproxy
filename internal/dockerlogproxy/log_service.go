@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"time"
 )
 
@@ -92,11 +91,8 @@ func (s *DockerLogService) GetContainerLogs(
 		)
 
 		rc, err = s.logStorage.Open(query.ContainerName)
-		if os.IsNotExist(err) {
-			return nil, &Error{
-				Code:    ErrorCodeContainerNotFound,
-				Message: fmt.Sprintf("container not found: %s", err.Error()),
-			}
+		if errors.As(err, &derr) && derr.Code == ErrorCodeContainerNotFound {
+			return nil, err
 		} else if err != nil {
 			return nil, fmt.Errorf("open log file: %w", err)
 		}

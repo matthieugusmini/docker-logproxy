@@ -15,7 +15,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
@@ -229,14 +228,17 @@ type fakeLogStorage struct {
 	containers map[string][]dockerlogproxy.LogRecord
 }
 
-func (f *fakeLogStorage) Create(containerName string) (io.WriteCloser, error) {
+func (f *fakeLogStorage) Create(container dockerlogproxy.Container) (io.WriteCloser, error) {
 	return nil, nil
 }
 
 func (f *fakeLogStorage) Open(containerName string) (io.ReadCloser, error) {
 	logs, exists := f.containers[containerName]
 	if !exists {
-		return nil, os.ErrNotExist
+		return nil, &dockerlogproxy.Error{
+			Code:    dockerlogproxy.ErrorCodeContainerNotFound,
+			Message: "container not found in storage",
+		}
 	}
 
 	var buf bytes.Buffer

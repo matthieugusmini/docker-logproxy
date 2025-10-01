@@ -31,7 +31,7 @@ type DockerClient interface {
 type LogStorage interface {
 	// Create creates a new log file for the specified container and
 	// returns an [io.WriteCloser] to write directly to the storage.
-	Create(containerName string) (io.WriteCloser, error)
+	Create(container Container) (io.WriteCloser, error)
 
 	// Open returns a reader for the stored logs of the specified container.
 	Open(containerName string) (io.ReadCloser, error)
@@ -174,7 +174,7 @@ func (lc *LogCollector) collectContainerLogs(ctx context.Context, container Cont
 	}
 	defer r.Close()
 
-	f, err := lc.storage.Create(container.Name)
+	f, err := lc.storage.Create(container)
 	if err != nil {
 		return fmt.Errorf("create log file: %w", err)
 	}
