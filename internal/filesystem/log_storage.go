@@ -15,8 +15,7 @@ type LogStorage struct {
 }
 
 // NewLogStorage creates a new LogStorage instance that stores log files
-// in the specified root directory. The directory will be created if it
-// does not exist when storing logs.
+// in the specified root directory.
 func NewLogStorage(root string) *LogStorage {
 	return &LogStorage{root: root}
 }

@@ -149,17 +149,17 @@ func TestGetContainerLogs(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				containerName := mustSetupTestContainer(
+				containerName := mustSetupTestContainerWithLogs(
 					t,
 					t.Context(),
 					stderrLog,
 					stdoutLog,
 					tc.tty,
 				)
-				status, body, hdr := musGetLogs(t, baseURL, containerName, tc.queryParams)
+				status, body, hdr := mustGetLogs(t, baseURL, containerName, tc.queryParams)
 
 				contentType := hdr.Get("Content-Type")
-				if contentType != "text/plain" {
+				if !strings.HasPrefix(contentType, "text/plain") {
 					t.Errorf("Expected content type text/plain, got %s", contentType)
 				}
 
@@ -256,7 +256,7 @@ func TestGetContainerLogs(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				containerName := mustSetupTestContainer(
+				containerName := mustSetupTestContainerWithLogs(
 					t,
 					t.Context(),
 					stderrLog,
@@ -273,11 +273,10 @@ func TestGetContainerLogs(t *testing.T) {
 					t.Fatalf("Failed to remove container: %v", err)
 				}
 
-				status, body, hdr := musGetLogs(t, baseURL, containerName, tc.queryParams)
+				status, body, hdr := mustGetLogs(t, baseURL, containerName, tc.queryParams)
 
-				contentType := hdr.Get("Content-Type")
-				if contentType != "text/plain" {
-					t.Errorf("Expected content type text/plain, got %s", contentType)
+				if ct := hdr.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+					t.Errorf("Expected content type text/plain, got %s", ct)
 				}
 
 				if status != http.StatusOK {
@@ -304,11 +303,34 @@ func TestGetContainerLogs(t *testing.T) {
 		}
 	})
 
-	// TODO
-	t.Run("follow=1 streams logs incrementally", func(t *testing.T) {})
+	t.Run("follow=1 streams logs as they are generated", func(t *testing.T) {
+		// Echo with a delay to make sure the server keeps writing the logs
+		// to the client until the container exit.
+		cmd := "for i in 1 2 3 4; do echo \"log-$i\"; sleep 1; done"
+		containerName := mustSetupTestContainer(t, t.Context(), cmd, false)
+
+		q := url.Values{
+			"stdout": []string{"1"},
+			"follow": []string{"1"},
+		}
+		status, body, hdr := mustGetLogs(t, baseURL, containerName, q)
+
+		if ct := hdr.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+			t.Errorf("Expected content type text/plain, got %s", ct)
+		}
+
+		if status != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", status)
+		}
+
+		expected := "log-1\nlog-2\nlog-3\nlog-4\n"
+		if body != expected {
+			t.Errorf("Expected logs:\n%s\nGot:\n%s", expected, body)
+		}
+	})
 
 	t.Run("container does not exist returns 404", func(t *testing.T) {
-		requestURL := fmt.Sprintf("%s/logs/non-existant-container", baseURL)
+		requestURL := fmt.Sprintf("%s/logs/non-existent-container", baseURL)
 		req, err := http.NewRequest(http.MethodGet, requestURL, nil)
 		if err != nil {
 			t.Fatalf("Failed to create new HTTP request: %v", err)
@@ -372,22 +394,12 @@ func waitHealthz(t *testing.T, baseURL string) {
 func mustSetupTestContainer(
 	t *testing.T,
 	ctx context.Context,
-	stderrLog, stdoutLog string,
+	cmd string,
 	tty bool,
 ) string {
 	t.Helper()
 
 	containerName := fmt.Sprintf("test-logproxy-%d", time.Now().UnixNano())
-
-	var parts []string
-	if stdoutLog != "" {
-		parts = append(parts, fmt.Sprintf("printf '%%s\\n' %q", stdoutLog))
-	}
-	if stderrLog != "" {
-		parts = append(parts, fmt.Sprintf("printf '%%s\\n' %q 1>&2", stderrLog))
-	}
-	parts = append(parts, "sleep 30")
-	cmd := strings.Join(parts, " && ")
 
 	resp, err := dockerClient.ContainerCreate(ctx, &container.Config{
 		Image: "alpine:latest",
@@ -406,19 +418,39 @@ func mustSetupTestContainer(
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		if err := dockerClient.ContainerStop(cleanupCtx, resp.ID, client.ContainerStopOptions{}); err != nil {
-			t.Logf("Failed to stop container: %v", err)
-		}
-
-		if err := dockerClient.ContainerRemove(cleanupCtx, resp.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
-			t.Logf("Failed to remove container: %v", err)
-		}
+		_ = dockerClient.ContainerStop(cleanupCtx, resp.ID, client.ContainerStopOptions{})
+		_ = dockerClient.ContainerRemove(
+			cleanupCtx,
+			resp.ID,
+			client.ContainerRemoveOptions{Force: true},
+		)
 	})
 
 	return containerName
 }
 
-func musGetLogs(
+func mustSetupTestContainerWithLogs(
+	t *testing.T,
+	ctx context.Context,
+	stderrLog, stdoutLog string,
+	tty bool,
+) string {
+	t.Helper()
+
+	var parts []string
+	if stdoutLog != "" {
+		parts = append(parts, fmt.Sprintf("printf '%%s\\n' %q", stdoutLog))
+	}
+	if stderrLog != "" {
+		parts = append(parts, fmt.Sprintf("printf '%%s\\n' %q 1>&2", stderrLog))
+	}
+	parts = append(parts, "sleep 30")
+	cmd := strings.Join(parts, " && ")
+
+	return mustSetupTestContainer(t, ctx, cmd, tty)
+}
+
+func mustGetLogs(
 	t *testing.T,
 	baseURL, containerName string,
 	q url.Values,
