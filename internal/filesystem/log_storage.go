@@ -11,7 +11,8 @@ import (
 )
 
 // LogStorage provides filesystem-based storage for Docker container logs.
-// It stores logs as individual files in a specified root directory,
+// It stores logs as individual files named by container name, along with
+// metadata files named by container ID, all within a specified root directory.
 type LogStorage struct {
 	root string
 }
@@ -25,9 +26,10 @@ func NewLogStorage(root string) *LogStorage {
 }
 
 // Create creates a new log file for the specified container and returns
-// a WriteCloser for writing log data. The root directory is created if
-// it does not exist. The log file is named "<containerName>.log" and
-// stored in the root directory.
+// a WriteCloser for writing log data. It creates the root directory if it
+// does not exist, writes a metadata file named "<containerID>.meta.json"
+// containing the container information, and creates a log file named
+// "<containerName>.log" for storing the actual log output.
 func (ls *LogStorage) Create(container dockerlogproxy.Container) (io.WriteCloser, error) {
 	err := os.MkdirAll(ls.root, os.ModePerm)
 	if err != nil {
@@ -48,9 +50,13 @@ func (ls *LogStorage) Create(container dockerlogproxy.Container) (io.WriteCloser
 	return os.Create(logPath)
 }
 
-// Open opens the log file for the specified container and returns a
-// ReadCloser for reading log data. It returns an error if the log file
-// does not exist or cannot be opened.
+// Open opens the log file for the specified container and returns a ReadCloser
+// for reading log data. The containerNameOrID parameter accepts either a
+// container name or ID. If a log file matching the input directly exists, it is
+// returned. Otherwise, Open attempts to resolve the container ID to a name by
+// reading the metadata file, then opens the log file by name. It returns a
+// [dockerlogproxy.Error] with [dockerlogproxy.ErrorCodeContainerNotFound] if the metadata or log
+// file does not exist.
 func (ls *LogStorage) Open(containerNameOrID string) (io.ReadCloser, error) {
 	path := filepath.Join(ls.root, containerNameOrID+".log")
 	if f, err := os.Open(path); err == nil { // NO ERROR
@@ -59,6 +65,7 @@ func (ls *LogStorage) Open(containerNameOrID string) (io.ReadCloser, error) {
 		return nil, err
 	}
 
+	// Consider containerNameOrID as an ID and try to resolver the container name.
 	metadataPath := filepath.Join(ls.root, containerNameOrID+".meta.json")
 	f, err := os.Open(metadataPath)
 	if os.IsNotExist(err) {
