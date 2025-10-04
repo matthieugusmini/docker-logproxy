@@ -17,10 +17,10 @@ import (
 	"github.com/moby/moby/client"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/matthieugusmini/docker-logproxy/internal/api"
 	"github.com/matthieugusmini/docker-logproxy/internal/docker"
 	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
 	"github.com/matthieugusmini/docker-logproxy/internal/filesystem"
-	customhttp "github.com/matthieugusmini/docker-logproxy/internal/http"
 )
 
 const (
@@ -28,10 +28,14 @@ const (
 	defaultPort   = "8000"
 )
 
-func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
+var (
+	serverReadTimeout       = 15 * time.Second
+	serverReadHeaderTimeout = 5 * time.Second
+	serverShutdownTimeout   = 15 * time.Second
+)
 
+func main() {
+	ctx := context.Background()
 	if err := run(ctx, os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -39,6 +43,9 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
+	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
 	var (
 		verbose    bool
 		port       string
@@ -64,7 +71,6 @@ func run(ctx context.Context, args []string) error {
 		defaultLogDir,
 		"Directory where container logs are stored (default: logs)",
 	)
-
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
@@ -100,7 +106,16 @@ func run(ctx context.Context, args []string) error {
 
 	logSvc := dockerlogproxy.NewDockerLogService(dockerClient, storage, logger)
 	addr := net.JoinHostPort("", port)
-	srv := customhttp.NewServer(ctx, addr, logSvc)
+	handler := api.NewHandler(ctx, addr, logSvc)
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadTimeout:       serverReadTimeout,
+		ReadHeaderTimeout: serverReadHeaderTimeout,
+		BaseContext: func(net.Listener) context.Context {
+			return ctx
+		},
+	}
 
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -117,7 +132,7 @@ func run(ctx context.Context, args []string) error {
 		logger.Info("Server shutting down...")
 		// The base context has already been canceled so we create a new one
 		// to shutdown the server.
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("server shutdown: %w", err)
