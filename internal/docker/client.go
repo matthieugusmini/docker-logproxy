@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -61,7 +62,8 @@ func (c *Client) ListContainers(ctx context.Context) ([]dockerlogproxy.Container
 func (c *Client) WatchContainersStart(
 	ctx context.Context,
 ) (<-chan dockerlogproxy.Container, <-chan error) {
-	out := make(chan dockerlogproxy.Container, 1)
+	eventCh := make(chan dockerlogproxy.Container, 1)
+	errCh := make(chan error, 1)
 
 	// We only care about container start events since we need to add a new
 	// log streamer each time a container starts.
@@ -69,39 +71,59 @@ func (c *Client) WatchContainersStart(
 		filters.Arg("type", string(events.ContainerEventType)),
 		filters.Arg("event", "start"),
 	)
-	eventsCh, errs := c.dockerClient.Events(ctx, client.EventsListOptions{
+	messages, errs := c.dockerClient.Events(ctx, client.EventsListOptions{
 		Filters: filters,
 	})
 
 	go func() {
-		defer close(out)
+		defer close(eventCh)
+		defer close(errCh)
 
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case ev, ok := <-eventsCh:
+
+			case msg, ok := <-messages:
 				if !ok {
 					return
 				}
 
 				var tty bool
-				if info, err := c.dockerClient.ContainerInspect(ctx, ev.Actor.ID); err == nil {
+				if info, err := c.dockerClient.ContainerInspect(ctx, msg.Actor.ID); err == nil { // NO ERROR
 					if info.Config != nil {
 						tty = info.Config.Tty
 					}
 				}
 
-				out <- dockerlogproxy.Container{
-					ID:   ev.Actor.ID,
-					Name: ev.Actor.Attributes["name"],
+				ctr := dockerlogproxy.Container{
+					ID:   msg.Actor.ID,
+					Name: msg.Actor.Attributes["name"],
 					TTY:  tty,
 				}
+				select {
+				case eventCh <- ctr:
+				case <-ctx.Done():
+					return
+				}
+
+			case err, ok := <-errs:
+				if !ok {
+					return
+				}
+
+				// Stream ended cleanly (either read the stream completely or ctx canceled)
+				if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+					return
+				}
+
+				errCh <- err
+				return
 			}
 		}
 	}()
 
-	return out, errs
+	return eventCh, errCh
 }
 
 // FetchContainerLogs returns a filtered stream of logs from the specified Docker container.

@@ -86,6 +86,7 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("new Docker Engine API client: %w", err)
 	}
+	defer cli.Close()
 	dockerClient := docker.NewClient(cli)
 
 	logCollector := dockerlogproxy.NewLogCollector(

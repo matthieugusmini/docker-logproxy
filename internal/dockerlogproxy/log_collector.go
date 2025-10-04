@@ -127,6 +127,9 @@ func (lc *LogCollector) watchContainers(ctx context.Context) error {
 	containerEvents, errs := lc.dockerClient.WatchContainersStart(ctx)
 	for {
 		select {
+		case <-ctx.Done():
+			return ctx.Err()
+
 		case ctr, ok := <-containerEvents:
 			if !ok {
 				return nil
@@ -149,7 +152,11 @@ func (lc *LogCollector) watchContainers(ctx context.Context) error {
 				}
 			}()
 
-		case err := <-errs:
+		case err, ok := <-errs:
+			if !ok {
+				return nil
+			}
+
 			return err
 		}
 	}
