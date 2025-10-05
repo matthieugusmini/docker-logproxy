@@ -1,4 +1,4 @@
-package dockerlogproxy
+package log
 
 import (
 	"context"
@@ -10,31 +10,31 @@ import (
 	"time"
 )
 
-// DockerLogService provides a unified interface for accessing container logs
+// Service provides a unified interface for accessing container logs
 // from both running containers and persisted storage. It automatically falls back
 // to stored logs when a container cannot be found in Docker.
-type DockerLogService struct {
+type Service struct {
 	dockerClient DockerClient
-	logStorage   LogStorage
+	logStorage   Storage
 	logger       *slog.Logger
 }
 
-// NewDockerLogService creates a new service for retrieving Docker container logs
+// NewService creates a new service for retrieving Docker container logs
 // using the given Docker Engine API client or storage as a fallback.
-func NewDockerLogService(
+func NewService(
 	dockerClient DockerClient,
-	storage LogStorage,
+	storage Storage,
 	logger *slog.Logger,
-) *DockerLogService {
-	return &DockerLogService{
+) *Service {
+	return &Service{
 		dockerClient: dockerClient,
 		logStorage:   storage,
 		logger:       logger,
 	}
 }
 
-// LogsQuery represents the parameters for retrieving container logs.
-type LogsQuery struct {
+// Query represents the parameters for retrieving container logs.
+type Query struct {
 	// ContainerName is the name of the container to retrieve logs from.
 	ContainerName string
 
@@ -59,8 +59,8 @@ const (
 	StreamTypeStderr StreamType = "stderr"
 )
 
-// LogRecord represents a single log entry from a Docker container.
-type LogRecord struct {
+// Record represents a single log entry from a Docker container.
+type Record struct {
 	// Timestamp is the time at which the log was emitted by the container.
 	Timestamp time.Time `json:"timestamp,omitzero"`
 
@@ -74,9 +74,9 @@ type LogRecord struct {
 // GetContainerLogs retrieves logs for the specified container. It first attempts to fetch
 // live logs from Docker, then falls back to stored logs if the container is not found.
 // The returned stream is filtered according to the query parameters.
-func (s *DockerLogService) GetContainerLogs(
+func (s *Service) GetContainerLogs(
 	ctx context.Context,
-	query LogsQuery,
+	query Query,
 ) (io.ReadCloser, error) {
 	var (
 		rc   io.ReadCloser
@@ -109,7 +109,7 @@ func (s *DockerLogService) GetContainerLogs(
 
 		dec := json.NewDecoder(rc)
 		for {
-			var rec LogRecord
+			var rec Record
 			if err := dec.Decode(&rec); err != nil {
 				if errors.Is(err, io.EOF) {
 					return

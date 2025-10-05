@@ -1,4 +1,4 @@
-package dockerlogproxy
+package log
 
 // ErrorCode represents specific error conditions that can occur when working with container logs.
 type ErrorCode string

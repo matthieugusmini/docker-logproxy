@@ -16,7 +16,7 @@ import (
 	"github.com/moby/moby/api/types/filters"
 	"github.com/moby/moby/client"
 
-	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
+	"github.com/matthieugusmini/docker-logproxy/internal/log"
 )
 
 // Client is an adapter for the Docker Engine API client to our domain.
@@ -30,13 +30,13 @@ func NewClient(dockerClient *client.Client) *Client {
 }
 
 // ListContainers fetches the list of all containers in Docker (docker ps -a).
-func (c *Client) ListContainers(ctx context.Context) ([]dockerlogproxy.Container, error) {
+func (c *Client) ListContainers(ctx context.Context) ([]log.Container, error) {
 	containers, err := c.dockerClient.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, fmt.Errorf("list Docker containers: %w", err)
 	}
 
-	res := make([]dockerlogproxy.Container, len(containers))
+	res := make([]log.Container, len(containers))
 	for i, ctr := range containers {
 		// Retrieve the container canonical name.
 		ctrInfo, err := c.dockerClient.ContainerInspect(ctx, ctr.ID)
@@ -47,7 +47,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]dockerlogproxy.Container
 		// For historical reasons, container names are stored as paths.
 		containerName := strings.TrimPrefix(ctrInfo.Name, "/")
 
-		res[i] = dockerlogproxy.Container{
+		res[i] = log.Container{
 			ID:   ctrInfo.ID,
 			Name: containerName,
 			TTY:  ctrInfo.Config.Tty,
@@ -59,10 +59,8 @@ func (c *Client) ListContainers(ctx context.Context) ([]dockerlogproxy.Container
 
 // WatchContainersStart returns a stream of events the caller can consume
 // to be notified when a new running container is detected.
-func (c *Client) WatchContainersStart(
-	ctx context.Context,
-) (<-chan dockerlogproxy.Container, <-chan error) {
-	eventCh := make(chan dockerlogproxy.Container, 1)
+func (c *Client) WatchContainersStart(ctx context.Context) (<-chan log.Container, <-chan error) {
+	eventCh := make(chan log.Container)
 	errCh := make(chan error, 1)
 
 	// We only care about container start events since we need to add a new
@@ -96,7 +94,7 @@ func (c *Client) WatchContainersStart(
 					}
 				}
 
-				ctr := dockerlogproxy.Container{
+				ctr := log.Container{
 					ID:   msg.Actor.ID,
 					Name: msg.Actor.Attributes["name"],
 					TTY:  tty,
@@ -127,11 +125,8 @@ func (c *Client) WatchContainersStart(
 }
 
 // FetchContainerLogs returns a filtered stream of logs from the specified Docker container.
-// If the container cannot be found it returns a [*dockerlogproxy.Error].
-func (c *Client) FetchContainerLogs(
-	ctx context.Context,
-	query dockerlogproxy.LogsQuery,
-) (io.ReadCloser, error) {
+// If the container cannot be found it returns a [*log.Error].
+func (c *Client) FetchContainerLogs(ctx context.Context, query log.Query) (io.ReadCloser, error) {
 	r, err := c.dockerClient.ContainerLogs(ctx, query.ContainerName, client.ContainerLogsOptions{
 		ShowStdout: query.IncludeStdout,
 		ShowStderr: query.IncludeStderr,
@@ -140,8 +135,8 @@ func (c *Client) FetchContainerLogs(
 	})
 	if err != nil {
 		if errdefs.IsNotFound(err) {
-			return nil, &dockerlogproxy.Error{
-				Code:    dockerlogproxy.ErrorCodeContainerNotFound,
+			return nil, &log.Error{
+				Code:    log.ErrorCodeContainerNotFound,
 				Message: err.Error(),
 			}
 		}
@@ -165,15 +160,15 @@ func (c *Client) FetchContainerLogs(
 
 		var err error
 		if isTTY {
-			_, err = io.Copy(newNDJSONWriter(pw, dockerlogproxy.StreamTypeStdout), r)
+			_, err = io.Copy(newNDJSONWriter(pw, log.StreamTypeStdout), r)
 			if err != nil {
 				_ = pw.CloseWithError(err)
 			}
 			return
 		}
 
-		outW := newNDJSONWriter(pw, dockerlogproxy.StreamTypeStdout)
-		errW := newNDJSONWriter(pw, dockerlogproxy.StreamTypeStderr)
+		outW := newNDJSONWriter(pw, log.StreamTypeStdout)
+		errW := newNDJSONWriter(pw, log.StreamTypeStderr)
 		_, err = stdcopy.StdCopy(outW, errW, r)
 		// Flush any remaining logs
 		_ = outW.Close()
@@ -200,12 +195,12 @@ func (c *Client) isTTY(ctx context.Context, containerName string) (bool, error) 
 }
 
 type ndjsonWriter struct {
-	stream  dockerlogproxy.StreamType
+	stream  log.StreamType
 	encoder *json.Encoder
 	buf     bytes.Buffer
 }
 
-func newNDJSONWriter(w io.Writer, stream dockerlogproxy.StreamType) *ndjsonWriter {
+func newNDJSONWriter(w io.Writer, stream log.StreamType) *ndjsonWriter {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	return &ndjsonWriter{
@@ -254,7 +249,7 @@ func (w *ndjsonWriter) emit(line []byte) error {
 		}
 	}
 
-	rec := dockerlogproxy.LogRecord{
+	rec := log.Record{
 		Timestamp: ts,
 		Stream:    w.stream,
 		Log:       string(line),

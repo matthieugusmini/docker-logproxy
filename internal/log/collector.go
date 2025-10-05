@@ -1,4 +1,4 @@
-package dockerlogproxy
+package log
 
 import (
 	"context"
@@ -18,17 +18,17 @@ type DockerClient interface {
 	WatchContainersStart(ctx context.Context) (<-chan Container, <-chan error)
 
 	// FetchContainerLogs retrieves a stream of logs from a running container. The stream is represented as NDJSON with each line being a representation
-	// of a [dockerlogproxy.LogRecord].
+	// of a [log.Record].
 	// The query specifies which container and what type of logs to retrieve.
-	FetchContainerLogs(ctx context.Context, query LogsQuery) (io.ReadCloser, error)
+	FetchContainerLogs(ctx context.Context, query Query) (io.ReadCloser, error)
 }
 
-// LogsStorage provides access to persisted container logs from a storage backend.
+// Storage provides access to persisted container logs from a storage backend.
 // It abstracts the underlying storage mechanism (filesystem, cloud storage, etc.).
 //
 // NOTE: We only wrote a filesystem implementation as for now for the test but we would
 // most likely also accept a [context.Context] for implementations using the network.
-type LogStorage interface {
+type Storage interface {
 	// Create creates a new log file for the specified container and
 	// returns an [io.WriteCloser] to write directly to the storage.
 	Create(container Container) (io.WriteCloser, error)
@@ -37,32 +37,32 @@ type LogStorage interface {
 	Open(containerName string) (io.ReadCloser, error)
 }
 
-// LogCollectorOptions are optional parameters used to configure
-// the behavior of the [LogCollector]
-type LogCollectorOptions struct {
+// CollectorOptions are optional parameters used to configure
+// the behavior of the [Collector]
+type CollectorOptions struct {
 	// Containers specifies a list of container names to monitor.
 	// If empty, all containers will be monitored.
 	Containers []string
 }
 
-// LogCollector monitors Docker containers, collects their logs and saves them to storage backend.
-type LogCollector struct {
+// Collector monitors Docker containers, collects their logs and saves them to storage backend.
+type Collector struct {
 	dockerClient DockerClient
-	storage      LogStorage
+	storage      Storage
 	logger       *slog.Logger
 	wg           sync.WaitGroup
-	options      LogCollectorOptions
+	options      CollectorOptions
 }
 
-// NewLogCollector creates a new log collector that will monitor containers
+// NewCollector creates a new log collector that will monitor containers
 // and stream their logs to the provided storage backend.
-func NewLogCollector(
+func NewCollector(
 	apiClient DockerClient,
-	storage LogStorage,
+	storage Storage,
 	logger *slog.Logger,
-	opts LogCollectorOptions,
-) *LogCollector {
-	return &LogCollector{
+	opts CollectorOptions,
+) *Collector {
+	return &Collector{
 		dockerClient: apiClient,
 		storage:      storage,
 		logger:       logger,
@@ -72,7 +72,7 @@ func NewLogCollector(
 
 // Run starts the log collection process, discovering existing containers
 // and watching for new ones. It blocks until the context is cancelled.
-func (lc *LogCollector) Run(ctx context.Context) error {
+func (lc *Collector) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer func() {
 		lc.logger.Info("Log collector shutting down...")
@@ -95,7 +95,7 @@ func (lc *LogCollector) Run(ctx context.Context) error {
 	return nil
 }
 
-func (lc *LogCollector) discoverContainers(ctx context.Context) error {
+func (lc *Collector) discoverContainers(ctx context.Context) error {
 	containers, err := lc.dockerClient.ListContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("list containers: %w", err)
@@ -123,7 +123,7 @@ func (lc *LogCollector) discoverContainers(ctx context.Context) error {
 	return nil
 }
 
-func (lc *LogCollector) watchContainers(ctx context.Context) error {
+func (lc *Collector) watchContainers(ctx context.Context) error {
 	containerEvents, errs := lc.dockerClient.WatchContainersStart(ctx)
 	for {
 		select {
@@ -162,7 +162,7 @@ func (lc *LogCollector) watchContainers(ctx context.Context) error {
 	}
 }
 
-func (lc *LogCollector) collectContainerLogs(ctx context.Context, container Container) error {
+func (lc *Collector) collectContainerLogs(ctx context.Context, container Container) error {
 	lc.logger.Info(
 		"Start collecting logs",
 		slog.String("containerName", container.Name),
@@ -172,7 +172,7 @@ func (lc *LogCollector) collectContainerLogs(ctx context.Context, container Cont
 
 	// We include everything here to make sure we can filter them later
 	// if needed.
-	r, err := lc.dockerClient.FetchContainerLogs(ctx, LogsQuery{
+	r, err := lc.dockerClient.FetchContainerLogs(ctx, Query{
 		ContainerName: container.Name,
 		IncludeStdout: true,
 		IncludeStderr: true,
@@ -197,7 +197,7 @@ func (lc *LogCollector) collectContainerLogs(ctx context.Context, container Cont
 	return nil
 }
 
-func (lc *LogCollector) shouldWatchContainer(containerName string) bool {
+func (lc *Collector) shouldWatchContainer(containerName string) bool {
 	// Watch all containers if no specific containers specified
 	if len(lc.options.Containers) == 0 {
 		return true

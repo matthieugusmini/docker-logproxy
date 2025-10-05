@@ -1,4 +1,4 @@
-package dockerlogproxy
+package log
 
 // Container represents information about a Docker container.
 type Container struct {

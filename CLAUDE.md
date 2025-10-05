@@ -14,11 +14,11 @@ docker-logproxy/
 ├── internal/
 │   ├── api/                         # HTTP server and handlers
 │   ├── docker/                      # Docker Engine API client wrapper
-│   ├── dockerlogproxy/              # Core business logic
-│   │   ├── log_collector.go         # Monitors containers and saves logs
-│   │   ├── log_service.go           # Retrieves logs from Docker or storage
+│   ├── log/                         # Core business logic
+│   │   ├── collector.go             # Monitors containers and saves logs
+│   │   ├── service.go               # Retrieves logs from Docker or storage
 │   │   ├── container.go             # Container model
-│   │   └── errors.go                # Application error types
+│   │   └── error.go                 # Application error types
 │   └── filesystem/                  # Filesystem-based log storage
 ├── api/                             # OpenAPI specifications
 └── Makefile                         # Build and test commands
@@ -65,13 +65,13 @@ golangci-lint run
 
 The application consists of three main components:
 
-1. **Log Collector** (`dockerlogproxy.LogCollector`)
+1. **Log Collector** (`log.Collector`)
    - Discovers running containers on startup
    - Watches for new containers
    - Streams logs from Docker Engine to filesystem storage
    - Runs as a background goroutine per container
 
-2. **Log Service** (`dockerlogproxy.DockerLogService`)
+2. **Log Service** (`log.Service`)
    - Retrieves logs from running containers (via Docker API)
    - Falls back to filesystem storage for stopped containers
    - Filters stdout/stderr based on query parameters
@@ -120,7 +120,7 @@ The project uses two levels of testing:
 
 1. **Unit Tests** (`*_test.go`)
    - Test business logic in isolation using test doubles
-   - Example: `internal/dockerlogproxy/log_service_test.go`
+   - Example: `internal/log/service_test.go`
    - Run with: `make test-unit`
 
 2. **End-to-End Tests** (`main_test.go`, `//go:build e2e`)
@@ -130,15 +130,15 @@ The project uses two levels of testing:
 
 ## Key Design Decisions
 
-1. **Extensible Storage** - `LogStorage` interface allows pluggable backends (currently filesystem, future: S3, GCS)
-2. **Interface-based Design** - `DockerClient` and `LogStorage` interfaces enable testing with fakes/mocks
+1. **Extensible Storage** - `log.Storage` interface allows pluggable backends (currently filesystem, future: S3, GCS)
+2. **Interface-based Design** - `log.DockerClient` and `log.Storage` interfaces enable testing with fakes/mocks
 3. **Graceful Shutdown** - Uses `signal.NotifyContext` and `errgroup` for proper cleanup
-4. **Stream Format** - Logs stored as NDJSON with `LogRecord` entries containing timestamp, stream type, and content
+4. **Stream Format** - Logs stored as NDJSON with `log.Record` entries containing timestamp, stream type, and content
 5. **Non-root User** - Dockerfile uses distroless nonroot image for security
 
 ## Error Handling
 
-- Custom error types in `dockerlogproxy.Error` with error codes
-- `ErrorCodeContainerNotFound` - Container doesn't exist in Docker or storage
+- Custom error types in `log.Error` with error codes
+- `log.ErrorCodeContainerNotFound` - Container doesn't exist in Docker or storage
 - HTTP handlers translate application errors to appropriate status codes
 - Filesystem errors handled gracefully with fallback behavior

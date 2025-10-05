@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
+	"github.com/matthieugusmini/docker-logproxy/internal/log"
 )
 
 // LogStorage provides filesystem-based storage for Docker container logs.
@@ -33,7 +33,7 @@ func NewLogStorage(root string) *LogStorage {
 // It creates a container-specific directory at "[logDir]/[containerID]/"
 // if it does not exist already, writes container metadata to "metadata.json",
 // and creates a log file "[containerID]-json.log".
-func (ls *LogStorage) Create(container dockerlogproxy.Container) (io.WriteCloser, error) {
+func (ls *LogStorage) Create(container log.Container) (io.WriteCloser, error) {
 	containerDir := ls.containerDirPath(container.ID)
 	if err := os.MkdirAll(containerDir, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("make container directory: %w", err)
@@ -67,7 +67,7 @@ func (ls *LogStorage) Create(container dockerlogproxy.Container) (io.WriteCloser
 // an [io.ReadCloser] for reading log data. The containerNameOrID
 // parameter accepts either a container name or ID.
 //
-// Returns [dockerlogproxy.Error] with code [dockerlogproxy.ErrorCodeContainerNotFound] if the container cannot be found.
+// Returns [log.Error] with code [log.ErrorCodeContainerNotFound] if the container cannot be found.
 func (ls *LogStorage) Open(containerNameOrID string) (io.ReadCloser, error) {
 	// 1. Consider containerNameOrID is a container ID and try to directly
 	// open the log file.
@@ -82,8 +82,8 @@ func (ls *LogStorage) Open(containerNameOrID string) (io.ReadCloser, error) {
 	// via in-memory mapping.
 	v, found := ls.containerIDByName.Load(containerNameOrID)
 	if !found {
-		return nil, &dockerlogproxy.Error{
-			Code:    dockerlogproxy.ErrorCodeContainerNotFound,
+		return nil, &log.Error{
+			Code:    log.ErrorCodeContainerNotFound,
 			Message: fmt.Sprintf("container not found: %s", containerNameOrID),
 		}
 	}
@@ -92,8 +92,8 @@ func (ls *LogStorage) Open(containerNameOrID string) (io.ReadCloser, error) {
 	logPath = ls.logFilePath(containerID)
 	f, err := os.Open(logPath)
 	if os.IsNotExist(err) {
-		return nil, &dockerlogproxy.Error{
-			Code: dockerlogproxy.ErrorCodeContainerNotFound,
+		return nil, &log.Error{
+			Code: log.ErrorCodeContainerNotFound,
 			Message: fmt.Sprintf(
 				"log file not found for container %s (ID: %s)",
 				containerNameOrID,
@@ -135,7 +135,7 @@ func (ls *LogStorage) LoadExistingMappings() error {
 			continue
 		}
 
-		var container dockerlogproxy.Container
+		var container log.Container
 		if err := json.NewDecoder(f).Decode(&container); err != nil {
 			f.Close()
 			// Corrupted container log directory

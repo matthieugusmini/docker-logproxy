@@ -19,8 +19,8 @@ import (
 
 	"github.com/matthieugusmini/docker-logproxy/internal/api"
 	"github.com/matthieugusmini/docker-logproxy/internal/docker"
-	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
 	"github.com/matthieugusmini/docker-logproxy/internal/filesystem"
+	"github.com/matthieugusmini/docker-logproxy/internal/log"
 )
 
 const (
@@ -95,16 +95,16 @@ func run(ctx context.Context, args []string) error {
 	defer cli.Close()
 	dockerClient := docker.NewClient(cli)
 
-	logCollector := dockerlogproxy.NewLogCollector(
+	logCollector := log.NewCollector(
 		dockerClient,
 		storage,
 		logger,
-		dockerlogproxy.LogCollectorOptions{
+		log.CollectorOptions{
 			Containers: containers,
 		},
 	)
 
-	logSvc := dockerlogproxy.NewDockerLogService(dockerClient, storage, logger)
+	logSvc := log.NewService(dockerClient, storage, logger)
 	addr := net.JoinHostPort("", port)
 	handler := api.NewHandler(ctx, addr, logSvc)
 	srv := &http.Server{

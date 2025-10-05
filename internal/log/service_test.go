@@ -6,7 +6,7 @@
 // be redundant since e2e tests (main_test.go) already cover most scenarios, while
 // adding significant maintenance overhead. I typically write unit tests only when
 // e2e test setup becomes too complex and I want to test a specific part of the system.
-package dockerlogproxy_test
+package log_test
 
 import (
 	"bytes"
@@ -18,14 +18,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
+	"github.com/matthieugusmini/docker-logproxy/internal/log"
 )
 
-func TestDockerLogService_GetContainerLogs(t *testing.T) {
+func TestService_GetContainerLogs(t *testing.T) {
 	testTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 	logger := slog.New(slog.DiscardHandler)
 
-	logs := []dockerlogproxy.LogRecord{
+	logs := []log.Record{
 		{Timestamp: testTime, Stream: "stdout", Log: "stdout line 1\n"},
 		{Timestamp: testTime, Stream: "stderr", Log: "stderr line 1\n"},
 		{Timestamp: testTime, Stream: "stdout", Log: "stdout line 2\n"},
@@ -62,16 +62,16 @@ func TestDockerLogService_GetContainerLogs(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				dockerClient := &fakeDockerClient{
-					containers: map[string][]dockerlogproxy.LogRecord{
+					containers: map[string][]log.Record{
 						"test-container": logs,
 					},
 				}
 				storage := &fakeLogStorage{
-					containers: map[string][]dockerlogproxy.LogRecord{},
+					containers: map[string][]log.Record{},
 				}
-				service := dockerlogproxy.NewDockerLogService(dockerClient, storage, logger)
+				service := log.NewService(dockerClient, storage, logger)
 
-				rc, err := service.GetContainerLogs(context.Background(), dockerlogproxy.LogsQuery{
+				rc, err := service.GetContainerLogs(context.Background(), log.Query{
 					ContainerName: "test-container",
 					IncludeStdout: tc.includeStdout,
 					IncludeStderr: tc.includeStderr,
@@ -123,16 +123,16 @@ func TestDockerLogService_GetContainerLogs(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				dockerClient := &fakeDockerClient{
-					containers: map[string][]dockerlogproxy.LogRecord{},
+					containers: map[string][]log.Record{},
 				}
 				storage := &fakeLogStorage{
-					containers: map[string][]dockerlogproxy.LogRecord{
+					containers: map[string][]log.Record{
 						"stopped-container": logs,
 					},
 				}
-				service := dockerlogproxy.NewDockerLogService(dockerClient, storage, logger)
+				service := log.NewService(dockerClient, storage, logger)
 
-				rc, err := service.GetContainerLogs(context.Background(), dockerlogproxy.LogsQuery{
+				rc, err := service.GetContainerLogs(context.Background(), log.Query{
 					ContainerName: "stopped-container",
 					IncludeStdout: tc.includeStdout,
 					IncludeStderr: tc.includeStderr,
@@ -156,15 +156,15 @@ func TestDockerLogService_GetContainerLogs(t *testing.T) {
 
 	t.Run("container does not exist", func(t *testing.T) {
 		dockerClient := &fakeDockerClient{
-			containers: map[string][]dockerlogproxy.LogRecord{},
+			containers: map[string][]log.Record{},
 		}
 		storage := &fakeLogStorage{
-			containers: map[string][]dockerlogproxy.LogRecord{},
+			containers: map[string][]log.Record{},
 		}
 
-		service := dockerlogproxy.NewDockerLogService(dockerClient, storage, logger)
+		service := log.NewService(dockerClient, storage, logger)
 
-		_, err := service.GetContainerLogs(context.Background(), dockerlogproxy.LogsQuery{
+		_, err := service.GetContainerLogs(context.Background(), log.Query{
 			ContainerName: "nonexistent-container",
 			IncludeStdout: true,
 			IncludeStderr: true,
@@ -173,15 +173,15 @@ func TestDockerLogService_GetContainerLogs(t *testing.T) {
 			t.Fatal("expected error, got nil")
 		}
 
-		var appErr *dockerlogproxy.Error
+		var appErr *log.Error
 		if !errors.As(err, &appErr) {
-			t.Fatalf("expected *dockerlogproxy.Error, got %T", err)
+			t.Fatalf("expected *log.Error, got %T", err)
 		}
 
-		if appErr.Code != dockerlogproxy.ErrorCodeContainerNotFound {
+		if appErr.Code != log.ErrorCodeContainerNotFound {
 			t.Errorf(
 				"expected error code %s, got %s",
-				dockerlogproxy.ErrorCodeContainerNotFound,
+				log.ErrorCodeContainerNotFound,
 				appErr.Code,
 			)
 		}
@@ -189,27 +189,27 @@ func TestDockerLogService_GetContainerLogs(t *testing.T) {
 }
 
 type fakeDockerClient struct {
-	containers map[string][]dockerlogproxy.LogRecord
+	containers map[string][]log.Record
 }
 
-func (f *fakeDockerClient) ListContainers(ctx context.Context) ([]dockerlogproxy.Container, error) {
+func (f *fakeDockerClient) ListContainers(ctx context.Context) ([]log.Container, error) {
 	return nil, nil
 }
 
 func (f *fakeDockerClient) WatchContainersStart(
 	ctx context.Context,
-) (<-chan dockerlogproxy.Container, <-chan error) {
+) (<-chan log.Container, <-chan error) {
 	return nil, nil
 }
 
 func (f *fakeDockerClient) FetchContainerLogs(
 	ctx context.Context,
-	query dockerlogproxy.LogsQuery,
+	query log.Query,
 ) (io.ReadCloser, error) {
 	logs, exists := f.containers[query.ContainerName]
 	if !exists {
-		return nil, &dockerlogproxy.Error{
-			Code:    dockerlogproxy.ErrorCodeContainerNotFound,
+		return nil, &log.Error{
+			Code:    log.ErrorCodeContainerNotFound,
 			Message: "container not found in Docker",
 		}
 	}
@@ -225,18 +225,18 @@ func (f *fakeDockerClient) FetchContainerLogs(
 }
 
 type fakeLogStorage struct {
-	containers map[string][]dockerlogproxy.LogRecord
+	containers map[string][]log.Record
 }
 
-func (f *fakeLogStorage) Create(container dockerlogproxy.Container) (io.WriteCloser, error) {
+func (f *fakeLogStorage) Create(container log.Container) (io.WriteCloser, error) {
 	return nil, nil
 }
 
 func (f *fakeLogStorage) Open(containerName string) (io.ReadCloser, error) {
 	logs, exists := f.containers[containerName]
 	if !exists {
-		return nil, &dockerlogproxy.Error{
-			Code:    dockerlogproxy.ErrorCodeContainerNotFound,
+		return nil, &log.Error{
+			Code:    log.ErrorCodeContainerNotFound,
 			Message: "container not found in storage",
 		}
 	}

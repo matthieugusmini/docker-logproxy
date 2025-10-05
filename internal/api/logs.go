@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
+	"github.com/matthieugusmini/docker-logproxy/internal/log"
 )
 
 func handleLogs(dockerLogSvc DockerLogService) http.HandlerFunc {
@@ -26,7 +26,7 @@ func handleLogs(dockerLogSvc DockerLogService) http.HandlerFunc {
 
 		logs, err := dockerLogSvc.GetContainerLogs(
 			r.Context(),
-			dockerlogproxy.LogsQuery{
+			log.Query{
 				ContainerName: containerName,
 				IncludeStdout: includeStdout,
 				IncludeStderr: includeStderr,
@@ -34,8 +34,8 @@ func handleLogs(dockerLogSvc DockerLogService) http.HandlerFunc {
 			},
 		)
 		if err != nil {
-			var derr *dockerlogproxy.Error
-			if errors.As(err, &derr) && derr.Code == dockerlogproxy.ErrorCodeContainerNotFound {
+			var derr *log.Error
+			if errors.As(err, &derr) && derr.Code == log.ErrorCodeContainerNotFound {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}

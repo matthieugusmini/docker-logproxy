@@ -5,15 +5,15 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/matthieugusmini/docker-logproxy/internal/dockerlogproxy"
+	"github.com/matthieugusmini/docker-logproxy/internal/log"
 )
 
 // DockerLogService defines the interface for retrieving container logs.
 type DockerLogService interface {
 	// GetContainerLogs returns a filtered log stream for the specified container.
 	//
-	// Returns *dockerlogproxy.Error with code CONTAINER_NOT_FOUND if the container doesn't exist.
-	GetContainerLogs(ctx context.Context, query dockerlogproxy.LogsQuery) (io.ReadCloser, error)
+	// Returns *log.Error with code CONTAINER_NOT_FOUND if the container doesn't exist.
+	GetContainerLogs(ctx context.Context, query log.Query) (io.ReadCloser, error)
 }
 
 // NewHandler returns an http.Handler configured with the logs API endpoints.

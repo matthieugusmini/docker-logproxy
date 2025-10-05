@@ -2,6 +2,7 @@
 
 > A lightweight REST API for persistent Docker container log storage and retrieval
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/matthieugusmini/docker-logproxy.svg)](https://pkg.go.dev/github.com/matthieugusmini/docker-logproxy)
 [![Go Report Card](https://goreportcard.com/badge/github.com/matthieugusmini/docker-logproxy)](https://goreportcard.com/report/github.com/matthieugusmini/docker-logproxy)
 
 Docker Log Proxy monitors running Docker containers, captures their logs to the filesystem, and exposes them via a simple REST API. Logs remain accessible even after containers exit, making it ideal for debugging, auditing, and log aggregation workflows.
@@ -35,11 +36,11 @@ docker-logproxy/
 ├── internal/
 │   ├── api/                         # HTTP server and handlers
 │   ├── docker/                      # Docker Engine API client wrapper
-│   ├── dockerlogproxy/              # Core business logic
-│   │   ├── log_collector.go         # Monitors containers and saves logs
-│   │   ├── log_service.go           # Retrieves logs from Docker or storage
+│   ├── log/                         # Core business logic
+│   │   ├── collector.go             # Monitors containers and saves logs
+│   │   ├── service.go               # Retrieves logs from Docker or storage
 │   │   ├── container.go             # Container model
-│   │   └── errors.go                # Application error types
+│   │   └── error.go                 # Application error types
 │   └── filesystem/                  # Filesystem-based log storage
 ├── api/                             # OpenAPI specifications
 └── Makefile                         # Build and test commands
