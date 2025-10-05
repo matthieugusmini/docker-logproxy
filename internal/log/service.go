@@ -19,7 +19,7 @@ type Service struct {
 	logger       *slog.Logger
 }
 
-// NewService creates a new service for retrieving Docker container logs
+// NewService creates a new [Service] for retrieving Docker container logs
 // using the given Docker Engine API client or storage as a fallback.
 func NewService(
 	dockerClient DockerClient,

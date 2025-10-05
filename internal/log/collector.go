@@ -54,7 +54,7 @@ type Collector struct {
 	options      CollectorOptions
 }
 
-// NewCollector creates a new log collector that will monitor containers
+// NewCollector creates a new log [Collector] that will monitor containers
 // and stream their logs to the provided storage backend.
 func NewCollector(
 	apiClient DockerClient,

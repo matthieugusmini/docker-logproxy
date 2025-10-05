@@ -12,11 +12,11 @@ import (
 type DockerLogService interface {
 	// GetContainerLogs returns a filtered log stream for the specified container.
 	//
-	// Returns *log.Error with code CONTAINER_NOT_FOUND if the container doesn't exist.
+	// Returns [*log.Error] with code [log.ErrorCodeContainerNotFound] if the container doesn't exist.
 	GetContainerLogs(ctx context.Context, query log.Query) (io.ReadCloser, error)
 }
 
-// NewHandler returns an http.Handler configured with the logs API endpoints.
+// NewHandler returns an [http.Handler] configured with the logs API endpoints.
 // It sets up proper routing and integrates with the provided services.
 func NewHandler(ctx context.Context, addr string, dockerLogSvc DockerLogService) http.Handler {
 	mux := http.NewServeMux()

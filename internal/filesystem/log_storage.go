@@ -17,10 +17,10 @@ type LogStorage struct {
 	containerIDByName sync.Map
 }
 
-// NewLogStorage creates a new LogStorage instance that stores log files
+// NewLogStorage creates a new [LogStorage] instance that stores log files
 // in the specified root directory.
 //
-// You can call LoadExistingMappings() after creation to rebuild the name->ID mapping from old containers.
+// You can call [LoadExistingMappings] after creation to rebuild the name->ID mapping from old containers.
 func NewLogStorage(root string) *LogStorage {
 	return &LogStorage{
 		root: root,
