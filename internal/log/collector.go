@@ -72,46 +72,46 @@ func NewCollector(
 
 // Run starts the log collection process, discovering existing containers
 // and watching for new ones. It blocks until the context is cancelled.
-func (lc *Collector) Run(ctx context.Context) error {
+func (c *Collector) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer func() {
-		lc.logger.Info("Log collector shutting down...")
+		c.logger.Info("Log collector shutting down...")
 
 		cancel()
-		lc.wg.Wait()
+		c.wg.Wait()
 	}()
 
 	// Discover currently running containers and start collecting their logs.
-	if err := lc.discoverContainers(ctx); err != nil {
+	if err := c.discoverContainers(ctx); err != nil {
 		return fmt.Errorf("discover running containers: %w", err)
 	}
 
 	// Watch for new containers and start collecting their logs.
 	// This call is blocking.
-	if err := lc.watchContainers(ctx); err != nil {
+	if err := c.watchContainers(ctx); err != nil {
 		return fmt.Errorf("watch containers: %w", err)
 	}
 
 	return nil
 }
 
-func (lc *Collector) discoverContainers(ctx context.Context) error {
-	containers, err := lc.dockerClient.ListContainers(ctx)
+func (c *Collector) discoverContainers(ctx context.Context) error {
+	containers, err := c.dockerClient.ListContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("list containers: %w", err)
 	}
 
 	for _, ctr := range containers {
-		if !lc.shouldWatchContainer(ctr.Name) {
+		if !c.shouldWatchContainer(ctr.Name) {
 			continue
 		}
 
-		lc.wg.Add(1)
+		c.wg.Add(1)
 		go func() {
-			defer lc.wg.Done()
+			defer c.wg.Done()
 
-			if err := lc.collectContainerLogs(ctx, ctr); err != nil {
-				lc.logger.Error(
+			if err := c.collectContainerLogs(ctx, ctr); err != nil {
+				c.logger.Error(
 					"Stopped collecting logs",
 					slog.Any("error", err),
 					slog.String("containerName", ctr.Name),
@@ -123,8 +123,8 @@ func (lc *Collector) discoverContainers(ctx context.Context) error {
 	return nil
 }
 
-func (lc *Collector) watchContainers(ctx context.Context) error {
-	containerEvents, errs := lc.dockerClient.WatchContainersStart(ctx)
+func (c *Collector) watchContainers(ctx context.Context) error {
+	containerEvents, errs := c.dockerClient.WatchContainersStart(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -135,16 +135,16 @@ func (lc *Collector) watchContainers(ctx context.Context) error {
 				return nil
 			}
 
-			if !lc.shouldWatchContainer(ctr.Name) {
+			if !c.shouldWatchContainer(ctr.Name) {
 				continue
 			}
 
-			lc.wg.Add(1)
+			c.wg.Add(1)
 			go func() {
-				defer lc.wg.Done()
+				defer c.wg.Done()
 
-				if err := lc.collectContainerLogs(ctx, ctr); err != nil {
-					lc.logger.Error(
+				if err := c.collectContainerLogs(ctx, ctr); err != nil {
+					c.logger.Error(
 						"Stopped collecting logs",
 						slog.Any("error", err),
 						slog.String("containerName", ctr.Name),
@@ -162,8 +162,8 @@ func (lc *Collector) watchContainers(ctx context.Context) error {
 	}
 }
 
-func (lc *Collector) collectContainerLogs(ctx context.Context, container Container) error {
-	lc.logger.Info(
+func (c *Collector) collectContainerLogs(ctx context.Context, container Container) error {
+	c.logger.Info(
 		"Start collecting logs",
 		slog.String("containerName", container.Name),
 		slog.String("containerId", container.ID),
@@ -172,7 +172,7 @@ func (lc *Collector) collectContainerLogs(ctx context.Context, container Contain
 
 	// We include everything here to make sure we can filter them later
 	// if needed.
-	r, err := lc.dockerClient.FetchContainerLogs(ctx, Query{
+	r, err := c.dockerClient.FetchContainerLogs(ctx, Query{
 		ContainerName: container.Name,
 		IncludeStdout: true,
 		IncludeStderr: true,
@@ -183,7 +183,7 @@ func (lc *Collector) collectContainerLogs(ctx context.Context, container Contain
 	}
 	defer r.Close()
 
-	f, err := lc.storage.Create(container)
+	f, err := c.storage.Create(container)
 	if err != nil {
 		return fmt.Errorf("create log file: %w", err)
 	}
@@ -197,11 +197,11 @@ func (lc *Collector) collectContainerLogs(ctx context.Context, container Contain
 	return nil
 }
 
-func (lc *Collector) shouldWatchContainer(containerName string) bool {
+func (c *Collector) shouldWatchContainer(containerName string) bool {
 	// Watch all containers if no specific containers specified
-	if len(lc.options.Containers) == 0 {
+	if len(c.options.Containers) == 0 {
 		return true
 	}
 
-	return slices.Contains(lc.options.Containers, containerName)
+	return slices.Contains(c.options.Containers, containerName)
 }
