@@ -160,9 +160,16 @@ func (c *Client) FetchContainerLogs(ctx context.Context, query log.Query) (io.Re
 
 		var err error
 		if isTTY {
-			_, err = io.Copy(newNDJSONWriter(pw, log.StreamTypeStdout), r)
+			outW := newNDJSONWriter(pw, log.StreamTypeStdout)
+			_, err = io.Copy(outW, r)
 			if err != nil {
 				_ = pw.CloseWithError(err)
+				return
+			}
+			// Flush any remaining logs
+			if err := outW.Close(); err != nil {
+				_ = pw.CloseWithError(err)
+				return
 			}
 			return
 		}
@@ -170,11 +177,14 @@ func (c *Client) FetchContainerLogs(ctx context.Context, query log.Query) (io.Re
 		outW := newNDJSONWriter(pw, log.StreamTypeStdout)
 		errW := newNDJSONWriter(pw, log.StreamTypeStderr)
 		_, err = stdcopy.StdCopy(outW, errW, r)
-		// Flush any remaining logs
-		_ = outW.Close()
-		_ = errW.Close()
 		if err != nil {
 			_ = pw.CloseWithError(err)
+			return
+		}
+		// Flush any remaining logs
+		if err := errors.Join(outW.Close(), errW.Close()); err != nil {
+			_ = pw.CloseWithError(err)
+			return
 		}
 	}()
 
