@@ -11,7 +11,7 @@ import (
 
 // ContainerMonitor provides access to Docker container operations for monitoring.
 type ContainerMonitor interface {
-	Getter
+	ContainerLogStreamer
 
 	// ListContainers returns a slice representing all running containers in Docker.
 	ListContainers(ctx context.Context) ([]Container, error)
@@ -20,11 +20,11 @@ type ContainerMonitor interface {
 	WatchContainers(ctx context.Context) (<-chan ContainerEvent, <-chan error)
 }
 
-// Creator creates writable log streams for storing container logs.
+// StorageWriter creates writable log streams for storing container logs.
 //
 // NOTE: We only wrote a filesystem implementation as for now for the test but we would
 // most likely also accept a [context.Context] for implementations using the network.
-type Creator interface {
+type StorageWriter interface {
 	// Create creates a new log file for the specified container and
 	// returns an [io.WriteCloser] to write directly to the storage.
 	Create(container Container) (io.WriteCloser, error)
@@ -40,26 +40,26 @@ type CollectorOptions struct {
 
 // Collector monitors Docker containers, collects their logs and saves them to storage backend.
 type Collector struct {
-	monitor    ContainerMonitor
-	logCreator Creator
-	logger     *slog.Logger
-	wg         sync.WaitGroup
-	options    CollectorOptions
+	monitor ContainerMonitor
+	storage StorageWriter
+	logger  *slog.Logger
+	wg      sync.WaitGroup
+	options CollectorOptions
 }
 
 // NewCollector creates a new log [Collector] that will monitor containers
 // and stream their logs to the provided storage backend.
 func NewCollector(
 	monitor ContainerMonitor,
-	logCreator Creator,
+	storage StorageWriter,
 	logger *slog.Logger,
 	opts CollectorOptions,
 ) *Collector {
 	return &Collector{
-		monitor:    monitor,
-		logCreator: logCreator,
-		logger:     logger,
-		options:    opts,
+		monitor: monitor,
+		storage: storage,
+		logger:  logger,
+		options: opts,
 	}
 }
 
@@ -99,10 +99,7 @@ func (c *Collector) discoverContainers(ctx context.Context) error {
 			continue
 		}
 
-		c.wg.Add(1)
-		go func() {
-			defer c.wg.Done()
-
+		c.wg.Go(func() {
 			if err := c.collectContainerLogs(ctx, ctr); err != nil {
 				c.logger.Error(
 					"Stopped collecting logs",
@@ -110,7 +107,7 @@ func (c *Collector) discoverContainers(ctx context.Context) error {
 					slog.String("containerName", ctr.Name),
 				)
 			}
-		}()
+		})
 	}
 
 	return nil
@@ -134,10 +131,7 @@ func (c *Collector) watchContainers(ctx context.Context) error {
 
 			switch event.Type {
 			case EventTypeStarted:
-				c.wg.Add(1)
-				go func() {
-					defer c.wg.Done()
-
+				c.wg.Go(func() {
 					if err := c.collectContainerLogs(ctx, event.Container); err != nil {
 						c.logger.Error(
 							"Stopped collecting logs",
@@ -145,7 +139,7 @@ func (c *Collector) watchContainers(ctx context.Context) error {
 							slog.String("containerName", event.Container.Name),
 						)
 					}
-				}()
+				})
 
 			case EventTypeRemoved:
 				c.logger.Info(
@@ -177,7 +171,7 @@ func (c *Collector) collectContainerLogs(ctx context.Context, container Containe
 
 	// We include everything here to make sure we can filter them later
 	// if needed.
-	r, err := c.monitor.GetContainerLogs(ctx, Query{
+	r, err := c.monitor.StreamContainerLogs(ctx, Query{
 		ContainerName: container.Name,
 		IncludeStdout: true,
 		IncludeStderr: true,
@@ -188,7 +182,7 @@ func (c *Collector) collectContainerLogs(ctx context.Context, container Containe
 	}
 	defer r.Close()
 
-	f, err := c.logCreator.Create(container)
+	f, err := c.storage.Create(container)
 	if err != nil {
 		return fmt.Errorf("create log file: %w", err)
 	}

@@ -10,19 +10,19 @@ import (
 	"time"
 )
 
-// Getter retrieves log streams from running containers.
-type Getter interface {
-	// GetContainerLogs retrieves a stream of logs from a running container. The stream is represented as NDJSON with each line being a representation
+// ContainerLogStreamer retrieves log streams from running containers.
+type ContainerLogStreamer interface {
+	// StreamContainerLogs retrieves a stream of logs from a running container. The stream is represented as NDJSON with each line being a representation
 	// of a [log.Record].
 	// The query specifies which container and what type of logs to retrieve.
-	GetContainerLogs(ctx context.Context, query Query) (io.ReadCloser, error)
+	StreamContainerLogs(ctx context.Context, query Query) (io.ReadCloser, error)
 }
 
-// Opener opens stored log streams for containers.
+// StorageReader opens stored log streams for containers.
 //
 // NOTE: We only wrote a filesystem implementation as for now for the test but we would
 // most likely also accept a [context.Context] for implementations using the network.
-type Opener interface {
+type StorageReader interface {
 	// Open returns a reader for the stored logs of the specified container.
 	Open(containerName string) (io.ReadCloser, error)
 }
@@ -31,22 +31,22 @@ type Opener interface {
 // from both running containers and persisted storage. It automatically falls back
 // to stored logs when a container cannot be found in Docker.
 type Service struct {
-	logGetter Getter
-	logOpener Opener
-	logger    *slog.Logger
+	streamer ContainerLogStreamer
+	storage  StorageReader
+	logger   *slog.Logger
 }
 
 // NewService creates a new [Service] for retrieving Docker container logs
 // using the given Docker Engine API client or storage as a fallback.
 func NewService(
-	logGetter Getter,
-	logOpener Opener,
+	streamer ContainerLogStreamer,
+	storage StorageReader,
 	logger *slog.Logger,
 ) *Service {
 	return &Service{
-		logGetter: logGetter,
-		logOpener: logOpener,
-		logger:    logger,
+		streamer: streamer,
+		storage:  storage,
+		logger:   logger,
 	}
 }
 
@@ -97,14 +97,14 @@ func (s *Service) GetContainerLogs(ctx context.Context, query Query) (io.ReadClo
 		err         error
 		notFoundErr *ContainerNotFoundError
 	)
-	rc, err = s.logGetter.GetContainerLogs(ctx, query)
+	rc, err = s.streamer.StreamContainerLogs(ctx, query)
 	if errors.As(err, &notFoundErr) {
 		s.logger.Debug(
 			"Container not found in Docker, attempting to read from storage",
 			slog.String("containerName", query.ContainerName),
 		)
 
-		rc, err = s.logOpener.Open(query.ContainerName)
+		rc, err = s.storage.Open(query.ContainerName)
 		if errors.As(err, &notFoundErr) {
 			return nil, err
 		} else if err != nil {

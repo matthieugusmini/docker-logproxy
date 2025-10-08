@@ -18,6 +18,7 @@ linters:
     - gosmopolitan
     - ireturn
     - lll # golines already handle that job.
+    - maintidx
     - mnd
     - nilerr
     - nilnil

@@ -19,15 +19,15 @@ func TestCollector_Run(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			logger := slog.New(slog.DiscardHandler)
 			monitor := newFakeContainerMonitor()
 			monitor.containers = []log.Container{
 				{ID: "abc123", Name: "foo", TTY: false},
 			}
 			monitor.logs["foo"] = io.NopCloser(strings.NewReader("log data\n"))
 
-			logCreator := newFakeLogCreator()
-			collector := log.NewCollector(monitor, logCreator, logger, log.CollectorOptions{})
+			storage := newFakeStorageWriter()
+			collector := log.NewCollector(monitor, storage, logger, log.CollectorOptions{})
 
 			go func() {
 				_ = collector.Run(ctx)
@@ -36,7 +36,7 @@ func TestCollector_Run(t *testing.T) {
 			// Wait for discovery phase to complete.
 			synctest.Wait()
 
-			w, ok := logCreator.getWriter("foo")
+			w, ok := storage.getWriter("foo")
 			if !ok {
 				t.Error("container logs not collected")
 			}
@@ -56,10 +56,10 @@ func TestCollector_Run(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			logger := slog.New(slog.DiscardHandler)
 			monitor := newFakeContainerMonitor()
-			creator := newFakeLogCreator()
-			collector := log.NewCollector(monitor, creator, logger, log.CollectorOptions{})
+			storage := newFakeStorageWriter()
+			collector := log.NewCollector(monitor, storage, logger, log.CollectorOptions{})
 
 			go func() {
 				_ = collector.Run(ctx)
@@ -79,7 +79,7 @@ func TestCollector_Run(t *testing.T) {
 			synctest.Wait()
 
 			// Assert new container was picked up
-			w, ok := creator.getWriter("foo")
+			w, ok := storage.getWriter("foo")
 			if !ok {
 				t.Error("container logs not collected after start event")
 			}
@@ -99,7 +99,7 @@ func TestCollector_Run(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			logger := slog.New(slog.DiscardHandler)
 			monitor := newFakeContainerMonitor()
 			monitor.containers = []log.Container{
 				{ID: "abc123", Name: "webapp", TTY: false},
@@ -110,8 +110,8 @@ func TestCollector_Run(t *testing.T) {
 			monitor.logs["database"] = io.NopCloser(strings.NewReader("db logs\n"))
 			monitor.logs["cache"] = io.NopCloser(strings.NewReader("cache logs\n"))
 
-			logCreator := newFakeLogCreator()
-			collector := log.NewCollector(monitor, logCreator, logger, log.CollectorOptions{
+			storage := newFakeStorageWriter()
+			collector := log.NewCollector(monitor, storage, logger, log.CollectorOptions{
 				Containers: []string{
 					"webapp",
 					"database",
@@ -124,13 +124,13 @@ func TestCollector_Run(t *testing.T) {
 
 			synctest.Wait()
 
-			if _, ok := logCreator.getWriter("webapp"); !ok {
+			if _, ok := storage.getWriter("webapp"); !ok {
 				t.Error("webapp should be collected")
 			}
-			if _, ok := logCreator.getWriter("database"); !ok {
+			if _, ok := storage.getWriter("database"); !ok {
 				t.Error("database should be collected")
 			}
-			if _, ok := logCreator.getWriter("cache"); ok {
+			if _, ok := storage.getWriter("cache"); ok {
 				t.Error("cache should NOT be collected (not in filter)")
 			}
 
@@ -144,10 +144,10 @@ func TestCollector_Run(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			logger := slog.New(slog.DiscardHandler)
 			monitor := newFakeContainerMonitor()
-			logCreator := newFakeLogCreator()
-			collector := log.NewCollector(monitor, logCreator, logger, log.CollectorOptions{
+			storage := newFakeStorageWriter()
+			collector := log.NewCollector(monitor, storage, logger, log.CollectorOptions{
 				Containers: []string{"allowed"},
 			})
 
@@ -173,10 +173,10 @@ func TestCollector_Run(t *testing.T) {
 
 			synctest.Wait()
 
-			if _, ok := logCreator.getWriter("allowed"); !ok {
+			if _, ok := storage.getWriter("allowed"); !ok {
 				t.Error("allowed container should be collected")
 			}
-			if _, ok := logCreator.getWriter("filtered"); ok {
+			if _, ok := storage.getWriter("filtered"); ok {
 				t.Error("filtered container should NOT be collected")
 			}
 
@@ -190,12 +190,12 @@ func TestCollector_Run(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			logger := slog.New(slog.DiscardHandler)
 			monitor := newFakeContainerMonitor()
 			wantErr := errors.New("cannot list containers")
 			monitor.listErr = wantErr
-			logCreator := newFakeLogCreator()
-			collector := log.NewCollector(monitor, logCreator, logger, log.CollectorOptions{})
+			storage := newFakeStorageWriter()
+			collector := log.NewCollector(monitor, storage, logger, log.CollectorOptions{})
 
 			errCh := make(chan error, 1)
 			go func() {
@@ -220,10 +220,10 @@ func TestCollector_Run(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			logger := slog.New(slog.DiscardHandler)
 			monitor := newFakeContainerMonitor()
-			logCreator := newFakeLogCreator()
-			collector := log.NewCollector(monitor, logCreator, logger, log.CollectorOptions{})
+			storage := newFakeStorageWriter()
+			collector := log.NewCollector(monitor, storage, logger, log.CollectorOptions{})
 
 			errCh := make(chan error, 1)
 			go func() {
@@ -279,7 +279,7 @@ func (f *fakeContainerMonitor) WatchContainers(
 	return f.events, f.errs
 }
 
-func (f *fakeContainerMonitor) GetContainerLogs(
+func (f *fakeContainerMonitor) StreamContainerLogs(
 	ctx context.Context,
 	query log.Query,
 ) (io.ReadCloser, error) {
@@ -289,18 +289,18 @@ func (f *fakeContainerMonitor) GetContainerLogs(
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
-type fakeLogCreator struct {
+type fakeStorageWriter struct {
 	mu      sync.Mutex
 	writers map[string]*fakeWriteCloser
 }
 
-func newFakeLogCreator() *fakeLogCreator {
-	return &fakeLogCreator{
+func newFakeStorageWriter() *fakeStorageWriter {
+	return &fakeStorageWriter{
 		writers: make(map[string]*fakeWriteCloser),
 	}
 }
 
-func (f *fakeLogCreator) Create(container log.Container) (io.WriteCloser, error) {
+func (f *fakeStorageWriter) Create(container log.Container) (io.WriteCloser, error) {
 	wc := &fakeWriteCloser{buf: &strings.Builder{}}
 	f.mu.Lock()
 	f.writers[container.Name] = wc
@@ -308,7 +308,7 @@ func (f *fakeLogCreator) Create(container log.Container) (io.WriteCloser, error)
 	return wc, nil
 }
 
-func (f *fakeLogCreator) getWriter(name string) (*fakeWriteCloser, bool) {
+func (f *fakeStorageWriter) getWriter(name string) (*fakeWriteCloser, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	w, ok := f.writers[name]
