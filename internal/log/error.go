@@ -1,23 +1,27 @@
 package log
 
-// ErrorCode represents specific error conditions that can occur when working with container logs.
-type ErrorCode string
+import "fmt"
 
-const (
-	// ErrorCodeContainerNotFound indicates that the requested container was not found
-	// in either the container engine or in the log storage.
-	ErrorCodeContainerNotFound = "CONTAINER_NOT_FOUND"
-)
+// ContainerNotFoundError indicates that a container was not found
+// in either the container engine or in the log storage.
+type ContainerNotFoundError struct {
+	// Name is the container name that was not found
+	Name string
 
-// Error represents a domain-specific error.
-type Error struct {
-	// Code is the specific error type that occurred
-	Code ErrorCode
-
-	// Message provides human-readable details about the error
-	Message string
+	// Err is the underlying error that caused the not found condition.
+	// This field is optional and may be nil.
+	Err error
 }
 
-func (e *Error) Error() string {
-	return e.Message
+func (e *ContainerNotFoundError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("container %s not found: %v", e.Name, e.Err)
+	}
+	return fmt.Sprintf("container %s not found", e.Name)
+}
+
+// Unwrap returns the underlying error, enabling error chain traversal
+// with errors.Is and errors.As.
+func (e *ContainerNotFoundError) Unwrap() error {
+	return e.Err
 }

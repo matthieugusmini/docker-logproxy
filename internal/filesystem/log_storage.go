@@ -67,7 +67,7 @@ func (ls *LogStorage) Create(container log.Container) (io.WriteCloser, error) {
 // an [io.ReadCloser] for reading log data. The containerNameOrID
 // parameter accepts either a container name or ID.
 //
-// Returns [log.Error] with code [log.ErrorCodeContainerNotFound] if the container cannot be found.
+// Returns [*log.ContainerNotFoundError] if the container cannot be found.
 func (ls *LogStorage) Open(containerNameOrID string) (io.ReadCloser, error) {
 	// 1. Consider containerNameOrID is a container ID and try to directly
 	// open the log file.
@@ -82,9 +82,8 @@ func (ls *LogStorage) Open(containerNameOrID string) (io.ReadCloser, error) {
 	// via in-memory mapping.
 	v, found := ls.containerIDByName.Load(containerNameOrID)
 	if !found {
-		return nil, &log.Error{
-			Code:    log.ErrorCodeContainerNotFound,
-			Message: fmt.Sprintf("container not found: %s", containerNameOrID),
+		return nil, &log.ContainerNotFoundError{
+			Name: containerNameOrID,
 		}
 	}
 	containerID := v.(string)
@@ -92,13 +91,9 @@ func (ls *LogStorage) Open(containerNameOrID string) (io.ReadCloser, error) {
 	logPath = ls.logFilePath(containerID)
 	f, err := os.Open(logPath)
 	if os.IsNotExist(err) {
-		return nil, &log.Error{
-			Code: log.ErrorCodeContainerNotFound,
-			Message: fmt.Sprintf(
-				"log file not found for container %s (ID: %s)",
-				containerNameOrID,
-				containerID,
-			),
+		return nil, &log.ContainerNotFoundError{
+			Name: containerNameOrID,
+			Err:  err,
 		}
 	} else if err != nil {
 		return nil, fmt.Errorf("open log file: %w", err)

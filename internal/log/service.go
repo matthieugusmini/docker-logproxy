@@ -93,19 +93,19 @@ type Record struct {
 // The returned stream is filtered according to the query parameters.
 func (s *Service) GetContainerLogs(ctx context.Context, query Query) (io.ReadCloser, error) {
 	var (
-		rc   io.ReadCloser
-		err  error
-		derr *Error
+		rc          io.ReadCloser
+		err         error
+		notFoundErr *ContainerNotFoundError
 	)
 	rc, err = s.logGetter.GetContainerLogs(ctx, query)
-	if errors.As(err, &derr) && derr.Code == ErrorCodeContainerNotFound {
+	if errors.As(err, &notFoundErr) {
 		s.logger.Debug(
 			"Container not found in Docker, attempting to read from storage",
 			slog.String("containerName", query.ContainerName),
 		)
 
 		rc, err = s.logOpener.Open(query.ContainerName)
-		if errors.As(err, &derr) && derr.Code == ErrorCodeContainerNotFound {
+		if errors.As(err, &notFoundErr) {
 			return nil, err
 		} else if err != nil {
 			return nil, fmt.Errorf("open log file: %w", err)

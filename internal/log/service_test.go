@@ -173,16 +173,16 @@ func TestService_GetContainerLogs(t *testing.T) {
 			t.Fatal("expected error, got nil")
 		}
 
-		var appErr *log.Error
-		if !errors.As(err, &appErr) {
-			t.Fatalf("expected *log.Error, got %T", err)
+		var notFoundErr *log.ContainerNotFoundError
+		if !errors.As(err, &notFoundErr) {
+			t.Fatalf("expected *log.ContainerNotFoundError, got %T", err)
 		}
 
-		if appErr.Code != log.ErrorCodeContainerNotFound {
+		if notFoundErr.Name != "nonexistent-container" {
 			t.Errorf(
-				"expected error code %s, got %s",
-				log.ErrorCodeContainerNotFound,
-				appErr.Code,
+				"expected container name %s, got %s",
+				"nonexistent-container",
+				notFoundErr.Name,
 			)
 		}
 	})
@@ -198,9 +198,8 @@ func (f *fakeLogGetter) GetContainerLogs(
 ) (io.ReadCloser, error) {
 	logs, exists := f.containers[query.ContainerName]
 	if !exists {
-		return nil, &log.Error{
-			Code:    log.ErrorCodeContainerNotFound,
-			Message: "container not found in Docker",
+		return nil, &log.ContainerNotFoundError{
+			Name: query.ContainerName,
 		}
 	}
 
@@ -221,9 +220,8 @@ type fakeLogOpener struct {
 func (f *fakeLogOpener) Open(containerName string) (io.ReadCloser, error) {
 	logs, exists := f.containers[containerName]
 	if !exists {
-		return nil, &log.Error{
-			Code:    log.ErrorCodeContainerNotFound,
-			Message: "container not found in storage",
+		return nil, &log.ContainerNotFoundError{
+			Name: containerName,
 		}
 	}
 

@@ -34,8 +34,8 @@ func handleLogs(dockerLogSvc DockerLogService) http.HandlerFunc {
 			},
 		)
 		if err != nil {
-			var derr *log.Error
-			if errors.As(err, &derr) && derr.Code == log.ErrorCodeContainerNotFound {
+			var notFoundErr *log.ContainerNotFoundError
+			if errors.As(err, &notFoundErr) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
