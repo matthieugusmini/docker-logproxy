@@ -57,17 +57,18 @@ func (c *Client) ListContainers(ctx context.Context) ([]log.Container, error) {
 	return res, nil
 }
 
-// WatchContainersStart returns a stream of events the caller can consume
-// to be notified when a new running container is detected.
-func (c *Client) WatchContainersStart(ctx context.Context) (<-chan log.Container, <-chan error) {
-	eventCh := make(chan log.Container)
+// WatchContainers returns a stream of container lifecycle events (started, deleted)
+// that the caller can consume to be notified of container state changes.
+func (c *Client) WatchContainers(
+	ctx context.Context,
+) (<-chan log.ContainerEvent, <-chan error) {
+	eventCh := make(chan log.ContainerEvent)
 	errCh := make(chan error, 1)
 
-	// We only care about container start events since we need to add a new
-	// log streamer each time a container starts.
 	filters := filters.NewArgs(
 		filters.Arg("type", string(events.ContainerEventType)),
 		filters.Arg("event", "start"),
+		filters.Arg("event", "destroy"),
 	)
 	messages, errs := c.dockerClient.Events(ctx, client.EventsListOptions{
 		Filters: filters,
@@ -87,6 +88,17 @@ func (c *Client) WatchContainersStart(ctx context.Context) (<-chan log.Container
 					return
 				}
 
+				var eventType log.EventType
+				switch msg.Action {
+				case events.ActionStart:
+					eventType = log.EventTypeStarted
+				case events.ActionDestroy:
+					eventType = log.EventTypeRemoved
+				default:
+					// Skip unknown events
+					continue
+				}
+
 				var tty bool
 				if info, err := c.dockerClient.ContainerInspect(ctx, msg.Actor.ID); err == nil { // NO ERROR
 					if info.Config != nil {
@@ -94,13 +106,17 @@ func (c *Client) WatchContainersStart(ctx context.Context) (<-chan log.Container
 					}
 				}
 
-				ctr := log.Container{
-					ID:   msg.Actor.ID,
-					Name: msg.Actor.Attributes["name"],
-					TTY:  tty,
+				event := log.ContainerEvent{
+					Type: eventType,
+					Container: log.Container{
+						ID:   msg.Actor.ID,
+						Name: msg.Actor.Attributes["name"],
+						TTY:  tty,
+					},
 				}
+
 				select {
-				case eventCh <- ctr:
+				case eventCh <- event:
 				case <-ctx.Done():
 					return
 				}

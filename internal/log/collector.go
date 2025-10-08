@@ -16,8 +16,8 @@ type ContainerMonitor interface {
 	// ListContainers returns a slice representing all running containers in Docker.
 	ListContainers(ctx context.Context) ([]Container, error)
 
-	// WatchContainersStart watches for new running container.
-	WatchContainersStart(ctx context.Context) (<-chan Container, <-chan error)
+	// WatchContainerEvents watches for container lifecycle events (started, deleted, etc.).
+	WatchContainers(ctx context.Context) (<-chan ContainerEvent, <-chan error)
 }
 
 // Creator creates writable log streams for storing container logs.
@@ -117,33 +117,45 @@ func (c *Collector) discoverContainers(ctx context.Context) error {
 }
 
 func (c *Collector) watchContainers(ctx context.Context) error {
-	containerEvents, errs := c.monitor.WatchContainersStart(ctx)
+	events, errs := c.monitor.WatchContainers(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 
-		case ctr, ok := <-containerEvents:
+		case event, ok := <-events:
 			if !ok {
 				return nil
 			}
 
-			if !c.shouldWatchContainer(ctr.Name) {
+			if !c.shouldWatchContainer(event.Container.Name) {
 				continue
 			}
 
-			c.wg.Add(1)
-			go func() {
-				defer c.wg.Done()
+			switch event.Type {
+			case EventTypeStarted:
+				c.wg.Add(1)
+				go func() {
+					defer c.wg.Done()
 
-				if err := c.collectContainerLogs(ctx, ctr); err != nil {
-					c.logger.Error(
-						"Stopped collecting logs",
-						slog.Any("error", err),
-						slog.String("containerName", ctr.Name),
-					)
-				}
-			}()
+					if err := c.collectContainerLogs(ctx, event.Container); err != nil {
+						c.logger.Error(
+							"Stopped collecting logs",
+							slog.Any("error", err),
+							slog.String("containerName", event.Container.Name),
+						)
+					}
+				}()
+
+			case EventTypeRemoved:
+				c.logger.Info(
+					"Container removed",
+					slog.String("containerName", event.Container.Name),
+					slog.String("containerId", event.Container.ID),
+				)
+				// The log collection goroutine will naturally exit when the container
+				// stops producing logs and the stream closes.
+			}
 
 		case err, ok := <-errs:
 			if !ok {
