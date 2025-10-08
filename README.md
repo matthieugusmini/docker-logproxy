@@ -61,7 +61,7 @@ curl http://localhost:8000/logs/test-container
 
 ## Prerequisites
 
-- **Go** 1.24.5 or higher
+- **Go** 1.25 or higher
 - **Docker Engine** running locally or accessible via TCP
 - **Docker Socket Access** - typically requires `/var/run/docker.sock` permissions
 

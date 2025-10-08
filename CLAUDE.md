@@ -119,8 +119,9 @@ Health check endpoint for monitoring.
 The project uses two levels of testing:
 
 1. **Unit Tests** (`*_test.go`)
-   - Test business logic in isolation using test doubles
-   - Example: `internal/log/service_test.go`
+   - Test business logic in isolation using test doubles (fakes)
+   - Use Go 1.25's `testing/synctest` package for deterministic concurrent testing
+   - Example: `internal/log/collector_test.go`, `internal/log/service_test.go`
    - Run with: `make test-unit`
 
 2. **End-to-End Tests** (`main_test.go`, `//go:build e2e`)
