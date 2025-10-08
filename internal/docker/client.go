@@ -124,9 +124,9 @@ func (c *Client) WatchContainersStart(ctx context.Context) (<-chan log.Container
 	return eventCh, errCh
 }
 
-// FetchContainerLogs returns a filtered stream of logs from the specified Docker container.
+// GetContainerLogs returns a filtered stream of logs from the specified Docker container.
 // If the container cannot be found it returns a [*log.Error].
-func (c *Client) FetchContainerLogs(ctx context.Context, query log.Query) (io.ReadCloser, error) {
+func (c *Client) GetContainerLogs(ctx context.Context, query log.Query) (io.ReadCloser, error) {
 	r, err := c.dockerClient.ContainerLogs(ctx, query.ContainerName, client.ContainerLogsOptions{
 		ShowStdout: query.IncludeStdout,
 		ShowStderr: query.IncludeStderr,

@@ -9,32 +9,25 @@ import (
 	"sync"
 )
 
-// DockerClient provides access to Docker container operations
-type DockerClient interface {
+// ContainerMonitor provides access to Docker container operations for monitoring.
+type ContainerMonitor interface {
+	Getter
+
 	// ListContainers returns a slice representing all running containers in Docker.
 	ListContainers(ctx context.Context) ([]Container, error)
 
 	// WatchContainersStart watches for new running container.
 	WatchContainersStart(ctx context.Context) (<-chan Container, <-chan error)
-
-	// FetchContainerLogs retrieves a stream of logs from a running container. The stream is represented as NDJSON with each line being a representation
-	// of a [log.Record].
-	// The query specifies which container and what type of logs to retrieve.
-	FetchContainerLogs(ctx context.Context, query Query) (io.ReadCloser, error)
 }
 
-// Storage provides access to persisted container logs from a storage backend.
-// It abstracts the underlying storage mechanism (filesystem, cloud storage, etc.).
+// Creator creates writable log streams for storing container logs.
 //
 // NOTE: We only wrote a filesystem implementation as for now for the test but we would
 // most likely also accept a [context.Context] for implementations using the network.
-type Storage interface {
+type Creator interface {
 	// Create creates a new log file for the specified container and
 	// returns an [io.WriteCloser] to write directly to the storage.
 	Create(container Container) (io.WriteCloser, error)
-
-	// Open returns a reader for the stored logs of the specified container.
-	Open(containerName string) (io.ReadCloser, error)
 }
 
 // CollectorOptions are optional parameters used to configure
@@ -47,26 +40,26 @@ type CollectorOptions struct {
 
 // Collector monitors Docker containers, collects their logs and saves them to storage backend.
 type Collector struct {
-	dockerClient DockerClient
-	storage      Storage
-	logger       *slog.Logger
-	wg           sync.WaitGroup
-	options      CollectorOptions
+	monitor    ContainerMonitor
+	logCreator Creator
+	logger     *slog.Logger
+	wg         sync.WaitGroup
+	options    CollectorOptions
 }
 
 // NewCollector creates a new log [Collector] that will monitor containers
 // and stream their logs to the provided storage backend.
 func NewCollector(
-	apiClient DockerClient,
-	storage Storage,
+	monitor ContainerMonitor,
+	logCreator Creator,
 	logger *slog.Logger,
 	opts CollectorOptions,
 ) *Collector {
 	return &Collector{
-		dockerClient: apiClient,
-		storage:      storage,
-		logger:       logger,
-		options:      opts,
+		monitor:    monitor,
+		logCreator: logCreator,
+		logger:     logger,
+		options:    opts,
 	}
 }
 
@@ -96,7 +89,7 @@ func (c *Collector) Run(ctx context.Context) error {
 }
 
 func (c *Collector) discoverContainers(ctx context.Context) error {
-	containers, err := c.dockerClient.ListContainers(ctx)
+	containers, err := c.monitor.ListContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("list containers: %w", err)
 	}
@@ -124,7 +117,7 @@ func (c *Collector) discoverContainers(ctx context.Context) error {
 }
 
 func (c *Collector) watchContainers(ctx context.Context) error {
-	containerEvents, errs := c.dockerClient.WatchContainersStart(ctx)
+	containerEvents, errs := c.monitor.WatchContainersStart(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -172,7 +165,7 @@ func (c *Collector) collectContainerLogs(ctx context.Context, container Containe
 
 	// We include everything here to make sure we can filter them later
 	// if needed.
-	r, err := c.dockerClient.FetchContainerLogs(ctx, Query{
+	r, err := c.monitor.GetContainerLogs(ctx, Query{
 		ContainerName: container.Name,
 		IncludeStdout: true,
 		IncludeStderr: true,
@@ -183,7 +176,7 @@ func (c *Collector) collectContainerLogs(ctx context.Context, container Containe
 	}
 	defer r.Close()
 
-	f, err := c.storage.Create(container)
+	f, err := c.logCreator.Create(container)
 	if err != nil {
 		return fmt.Errorf("create log file: %w", err)
 	}

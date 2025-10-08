@@ -61,15 +61,15 @@ func TestService_GetContainerLogs(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				dockerClient := &fakeDockerClient{
+				logGetter := &fakeLogGetter{
 					containers: map[string][]log.Record{
 						"test-container": logs,
 					},
 				}
-				storage := &fakeLogStorage{
+				logOpener := &fakeLogOpener{
 					containers: map[string][]log.Record{},
 				}
-				service := log.NewService(dockerClient, storage, logger)
+				service := log.NewService(logGetter, logOpener, logger)
 
 				rc, err := service.GetContainerLogs(context.Background(), log.Query{
 					ContainerName: "test-container",
@@ -122,15 +122,15 @@ func TestService_GetContainerLogs(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				dockerClient := &fakeDockerClient{
+				logGetter := &fakeLogGetter{
 					containers: map[string][]log.Record{},
 				}
-				storage := &fakeLogStorage{
+				logOpener := &fakeLogOpener{
 					containers: map[string][]log.Record{
 						"stopped-container": logs,
 					},
 				}
-				service := log.NewService(dockerClient, storage, logger)
+				service := log.NewService(logGetter, logOpener, logger)
 
 				rc, err := service.GetContainerLogs(context.Background(), log.Query{
 					ContainerName: "stopped-container",
@@ -155,14 +155,14 @@ func TestService_GetContainerLogs(t *testing.T) {
 	})
 
 	t.Run("container does not exist", func(t *testing.T) {
-		dockerClient := &fakeDockerClient{
+		logGetter := &fakeLogGetter{
 			containers: map[string][]log.Record{},
 		}
-		storage := &fakeLogStorage{
+		logOpener := &fakeLogOpener{
 			containers: map[string][]log.Record{},
 		}
 
-		service := log.NewService(dockerClient, storage, logger)
+		service := log.NewService(logGetter, logOpener, logger)
 
 		_, err := service.GetContainerLogs(context.Background(), log.Query{
 			ContainerName: "nonexistent-container",
@@ -188,21 +188,11 @@ func TestService_GetContainerLogs(t *testing.T) {
 	})
 }
 
-type fakeDockerClient struct {
+type fakeLogGetter struct {
 	containers map[string][]log.Record
 }
 
-func (f *fakeDockerClient) ListContainers(ctx context.Context) ([]log.Container, error) {
-	return nil, nil
-}
-
-func (f *fakeDockerClient) WatchContainersStart(
-	ctx context.Context,
-) (<-chan log.Container, <-chan error) {
-	return nil, nil
-}
-
-func (f *fakeDockerClient) FetchContainerLogs(
+func (f *fakeLogGetter) GetContainerLogs(
 	ctx context.Context,
 	query log.Query,
 ) (io.ReadCloser, error) {
@@ -224,15 +214,11 @@ func (f *fakeDockerClient) FetchContainerLogs(
 	return io.NopCloser(&buf), nil
 }
 
-type fakeLogStorage struct {
+type fakeLogOpener struct {
 	containers map[string][]log.Record
 }
 
-func (f *fakeLogStorage) Create(container log.Container) (io.WriteCloser, error) {
-	return nil, nil
-}
-
-func (f *fakeLogStorage) Open(containerName string) (io.ReadCloser, error) {
+func (f *fakeLogOpener) Open(containerName string) (io.ReadCloser, error) {
 	logs, exists := f.containers[containerName]
 	if !exists {
 		return nil, &log.Error{
